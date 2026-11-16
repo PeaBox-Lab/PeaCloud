@@ -11,3 +11,10 @@ def test_vm_action():
     data=c.get('/api/resources?provider=mock').json()['items']; assert next(x for x in data if x['id']=='vm-demo-01')['state']=='stopped'
 def test_viewer_blocked():
     r=c.post('/api/resources/mock/vm-demo-01/actions/start',headers={'X-Role':'viewer'},json={'confirmation':'START vm-demo-01'}); assert r.status_code==403
+def test_secret_admin_only():
+    assert c.post('/api/secrets',json={'name':'x','value':'supersecret'}).status_code==403
+    r=c.post('/api/secrets',headers={'X-Role':'admin'},json={'name':'x','value':'supersecret'}); assert r.status_code==200
+    listed=c.get('/api/secrets',headers={'X-Role':'admin'}).json(); assert 'supersecret' not in str(listed); assert 'x' in listed['names']
+def test_connection_profile():
+    r=c.post('/api/profiles',json={'provider':'aws','name':'sandbox','account_id':'123'}); assert r.status_code==200
+    assert any(x['name']=='sandbox' for x in c.get('/api/profiles').json())

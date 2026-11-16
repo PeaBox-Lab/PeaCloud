@@ -1,4 +1,4 @@
-# PeaCloud v0.1.0
+# PeaCloud v0.2.0
 
 A safe multi-cloud management MVP for AWS, Microsoft Azure, Google Cloud, and a built-in mock provider.
 
@@ -90,3 +90,16 @@ pytest -q
 3. Approval workflows and Open Policy Agent
 4. Pulumi Automation API provisioning previews
 5. Cost data, budgets, schedules, and drift detection
+
+# v0.2.0 additions
+PeaCloud now includes connection profiles, an encrypted secret-vault abstraction, and a policy engine in the mutation path.
+
+## Governance rules
+- `viewer`: read only.
+- `operator`: normal non-production VM operations.
+- `admin`: required for production-tagged resources and secret management.
+- Any resource tagged `protected=true` is mutation-blocked.
+- Only `start`, `stop`, `restart`, and `snapshot` are allow-listed.
+
+## Vault
+Set a stable 32+ character value in `PEACLOUD_MASTER_KEY` before storing secrets. If omitted, the development vault intentionally uses an ephemeral process key. For production, replace the local vault with AWS Secrets Manager, Azure Key Vault, Google Secret Manager, or HashiCorp Vault.
