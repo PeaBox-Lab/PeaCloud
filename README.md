@@ -1,4 +1,4 @@
-# PeaCloud v0.7.0
+# PeaCloud v0.8.0
 
 A safe multi-cloud management MVP for AWS, Microsoft Azure, Google Cloud, and a built-in mock provider.
 
@@ -142,3 +142,7 @@ Adds persistent, auditable change approvals. Operator snapshot and production-re
 
 ## v0.7.0
 Adds a plan-before-apply provisioning workspace. Mock deployments can be applied end to end. AWS/Azure/GCP provisioning deliberately remains preview-only pending Pulumi Automation API or Terraform runner integration. Cost values are planning hints, not provider quotes.
+
+
+## v0.8.0 IaC runner
+PeaCloud can generate Terraform previews for supported blueprints. Real execution requires Terraform in PATH, valid provider credentials, and `PEACLOUD_ALLOW_IAC_APPLY=true`. Keep the flag false for normal evaluation. The runner uses non-interactive commands and a configurable `PEACLOUD_IAC_TIMEOUT` (default 900 seconds).

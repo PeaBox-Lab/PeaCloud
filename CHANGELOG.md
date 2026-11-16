@@ -1,4 +1,13 @@
 # Changelog
+## v0.8.0
+- Added Terraform execution boundary with strict subprocess timeout and captured output.
+- Added generated Terraform previews for selected AWS, Azure and GCP blueprints.
+- Added React View IaC capability in provisioning plans.
+- Added mandatory PEACLOUD_ALLOW_IAC_APPLY gate for real mutations.
+- Added capability diagnostics for Terraform/Pulumi CLI availability.
+- Added consolidated ROADMAP.md.
+- Preserved all prior features cumulatively.
+
 ## v0.7.0
 - Added provisioning workspace with plan-before-apply workflow.
 - Added persistent provisioning plans and deployment records.

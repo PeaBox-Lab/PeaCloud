@@ -10,10 +10,11 @@ from app.store import Store
 from app.scheduler import run_due
 from app.approvals import needs_approval, make_request
 from app.provisioning import plan as make_plan, apply_mock
+from app.iac import runner as iac_runner, IaCError
 from app.providers.mock import MockProvider
 from app.providers.cloud import AWSProvider, AzureProvider, GCPProvider
 
-app=FastAPI(title="PeaCloud",version="0.7.0")
+app=FastAPI(title="PeaCloud",version="0.8.0")
 providers={"mock":MockProvider(),"aws":AWSProvider(),"azure":AzureProvider(),"gcp":GCPProvider()}
 operations=[]; audit=[]; profiles=[]; schedules=[]
 vault=SecretVault(); policy=PolicyEngine(); store=Store()
@@ -24,7 +25,7 @@ def role(x_role): return x_role or "operator"
 def record(user,event,detail): audit.insert(0,{"timestamp":now(),"user":user,"event":event,"detail":detail})
 
 @app.get("/api/health")
-def health(): return {"status":"ok","version":"0.7.0","real_changes_enabled":False,"vault_ephemeral":vault.ephemeral}
+def health(): return {"status":"ok","version":"0.8.0","real_changes_enabled":False,"vault_ephemeral":vault.ephemeral}
 @app.get("/api/connections")
 def connections(): return [{"provider":n,"configured":n=="mock","mode":"demo" if n=="mock" else "environment"} for n in providers]
 @app.get("/api/profiles")
@@ -58,13 +59,23 @@ def provisioning_apply(plan_id:str,body:DeploymentApplyInput,x_user:str|None=Hea
     expected=f"APPLY {plan_id}"
     if body.confirmation!=expected: raise HTTPException(400,f"Confirmation must be exactly: {expected}")
     if item["risk"]=="high" and role(x_role)!="admin": raise HTTPException(403,"Production provisioning requires admin")
-    try: result=apply_mock(item,providers[item["provider"]])
-    except PermissionError as e: raise HTTPException(400,str(e))
+    try:
+        if item["provider"]=="mock": result=apply_mock(item,providers[item["provider"]])
+        else:
+            out=iac_runner.terraform_apply(item); result={"deployment_id":str(uuid4()),"status":out["status"],"provider":item["provider"],"resource_name":item["name"],"message":"Terraform apply completed","applied_at":now(),"engine":"terraform"}
+    except (PermissionError,IaCError) as e: raise HTTPException(400,str(e))
     deployments.insert(0,result); store.put("deployment",{"id":result["deployment_id"],**result}); item["status"]="applied";store.put("plan",item);record(x_user,"provision.apply",plan_id);return result
 @app.get("/api/provisioning/deployments")
 def provisioning_deployments(): return deployments
+@app.get("/api/provisioning/plans/{plan_id}/iac-preview")
+def iac_preview(plan_id:str):
+    item=next((x for x in plans if x["id"]==plan_id),None)
+    if not item: raise HTTPException(404,"Plan not found")
+    if item["provider"]=="mock": return {"engine":"mock","configuration":"# Mock provider does not require IaC","executable":True,"validated":True}
+    try:return iac_runner.terraform_preview(item)
+    except IaCError as e:raise HTTPException(400,str(e))
 @app.get("/api/provisioning/capabilities")
-def provisioning_capabilities(): return {"engine":"PeaCloud plan engine","real_provider_mode":"preview-only","mock_apply":True,"iac_targets":["Pulumi Automation API","Terraform"],"resource_types":["virtual_machine","object_storage","database"]}
+def provisioning_capabilities(): return {"engine":"PeaCloud IaC runner","mock_apply":True,"iac":iac_runner.capabilities(),"resource_types":["virtual_machine","object_storage","database"],"supported_templates":["aws/virtual_machine","aws/object_storage","azure/object_storage","gcp/object_storage"]}
 
 @app.get("/api/approvals")
 def get_approvals(status:str|None=None): return [x for x in approvals if not status or x["status"]==status]

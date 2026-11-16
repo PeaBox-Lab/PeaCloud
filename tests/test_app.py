@@ -44,3 +44,13 @@ def test_real_provider_apply_is_preview_only():
     b={'provider':'aws','resource_type':'virtual_machine','name':'preview','region':'ap-south-1','environment':'dev','size':'small'}
     r=c.post('/api/provisioning/plans',json=b); pid=r.json()['id']
     assert c.post(f'/api/provisioning/plans/{pid}/apply',json={'confirmation':f'APPLY {pid}'}).status_code==400
+def test_iac_capabilities_safe_default():
+    r=c.get('/api/provisioning/capabilities'); assert r.status_code==200; assert r.json()['iac']['real_apply_enabled'] is False
+def test_terraform_preview_aws_vm():
+    b={'provider':'aws','resource_type':'virtual_machine','name':'web-node','region':'ap-south-1','environment':'dev','size':'small'}
+    p=c.post('/api/provisioning/plans',json=b).json(); r=c.get(f"/api/provisioning/plans/{p['id']}/iac-preview")
+    assert r.status_code==200; assert 'aws_instance' in r.json()['configuration']; assert r.json()['validated'] is False
+def test_real_iac_apply_remains_gated():
+    b={'provider':'aws','resource_type':'virtual_machine','name':'gated','region':'ap-south-1','environment':'dev','size':'small'}
+    p=c.post('/api/provisioning/plans',json=b).json(); pid=p['id']; r=c.post(f'/api/provisioning/plans/{pid}/apply',json={'confirmation':f'APPLY {pid}'})
+    assert r.status_code==400; assert 'PEACLOUD_ALLOW_IAC_APPLY' in r.json()['detail']
