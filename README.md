@@ -1,4 +1,4 @@
-# PeaCloud v0.2.0
+# PeaCloud v0.3.0
 
 A safe multi-cloud management MVP for AWS, Microsoft Azure, Google Cloud, and a built-in mock provider.
 
@@ -103,3 +103,26 @@ PeaCloud now includes connection profiles, an encrypted secret-vault abstraction
 
 ## Vault
 Set a stable 32+ character value in `PEACLOUD_MASTER_KEY` before storing secrets. If omitted, the development vault intentionally uses an ephemeral process key. For production, replace the local vault with AWS Secrets Manager, Azure Key Vault, Google Secret Manager, or HashiCorp Vault.
+
+# v0.3.0 React frontend
+A full React + TypeScript + Vite frontend is now available in `frontend/`.
+
+## Run frontend in development
+Terminal 1:
+```bash
+uvicorn app.main:app --reload
+```
+Terminal 2:
+```bash
+cd frontend
+npm install
+npm run dev
+```
+Open `http://127.0.0.1:5173`. Vite proxies `/api` to FastAPI on port 8000.
+
+## Build production frontend
+```bash
+cd frontend
+npm install
+npm run build
+```

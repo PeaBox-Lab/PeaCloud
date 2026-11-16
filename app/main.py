@@ -9,7 +9,7 @@ from app.governance import PolicyEngine
 from app.providers.mock import MockProvider
 from app.providers.cloud import AWSProvider, AzureProvider, GCPProvider
 
-app=FastAPI(title="PeaCloud",version="0.2.0")
+app=FastAPI(title="PeaCloud",version="0.3.0")
 providers={"mock":MockProvider(),"aws":AWSProvider(),"azure":AzureProvider(),"gcp":GCPProvider()}
 operations=[]; audit=[]; profiles=[]
 vault=SecretVault(); policy=PolicyEngine()
@@ -19,7 +19,7 @@ def role(x_role): return x_role or "operator"
 def record(user,event,detail): audit.insert(0,{"timestamp":now(),"user":user,"event":event,"detail":detail})
 
 @app.get("/api/health")
-def health(): return {"status":"ok","version":"0.2.0","real_changes_enabled":False,"vault_ephemeral":vault.ephemeral}
+def health(): return {"status":"ok","version":"0.3.0","real_changes_enabled":False,"vault_ephemeral":vault.ephemeral}
 @app.get("/api/connections")
 def connections(): return [{"provider":n,"configured":n=="mock","mode":"demo" if n=="mock" else "environment"} for n in providers]
 @app.get("/api/profiles")
