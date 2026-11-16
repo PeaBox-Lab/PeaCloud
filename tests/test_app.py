@@ -18,3 +18,11 @@ def test_secret_admin_only():
 def test_connection_profile():
     r=c.post('/api/profiles',json={'provider':'aws','name':'sandbox','account_id':'123'}); assert r.status_code==200
     assert any(x['name']=='sandbox' for x in c.get('/api/profiles').json())
+def test_persistent_storage_status():
+    r=c.get('/api/system/storage'); assert r.status_code==200; assert r.json()['persistent'] is True
+def test_profile_wizard_admin():
+    b={'provider':'mock','name':'local','auth_method':'environment'}
+    assert c.post('/api/profiles/wizard',json=b).status_code==403
+    assert c.post('/api/profiles/wizard',headers={'X-Role':'admin'},json=b).status_code==200
+def test_scheduler_admin_only():
+    assert c.post('/api/scheduler/run-due',json={}).status_code==403

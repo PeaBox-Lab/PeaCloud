@@ -3,30 +3,33 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from datetime import datetime, timezone
 from uuid import uuid4
-from app.models import ActionRequest, ConnectionTest, ConnectionProfile, SecretInput, Operation, ScheduleInput
+from app.models import ActionRequest, ConnectionTest, ConnectionProfile, SecretInput, Operation, ScheduleInput, ProfileWizardInput, ScheduleRunInput
 from app.security import SecretVault
 from app.governance import PolicyEngine
+from app.store import Store
+from app.scheduler import run_due
 from app.providers.mock import MockProvider
 from app.providers.cloud import AWSProvider, AzureProvider, GCPProvider
 
-app=FastAPI(title="PeaCloud",version="0.4.0")
+app=FastAPI(title="PeaCloud",version="0.5.0")
 providers={"mock":MockProvider(),"aws":AWSProvider(),"azure":AzureProvider(),"gcp":GCPProvider()}
 operations=[]; audit=[]; profiles=[]; schedules=[]
-vault=SecretVault(); policy=PolicyEngine()
+vault=SecretVault(); policy=PolicyEngine(); store=Store()
+profiles=store.list("profile"); schedules=store.list("schedule")
 
 def now(): return datetime.now(timezone.utc).isoformat()
 def role(x_role): return x_role or "operator"
 def record(user,event,detail): audit.insert(0,{"timestamp":now(),"user":user,"event":event,"detail":detail})
 
 @app.get("/api/health")
-def health(): return {"status":"ok","version":"0.4.0","real_changes_enabled":False,"vault_ephemeral":vault.ephemeral}
+def health(): return {"status":"ok","version":"0.5.0","real_changes_enabled":False,"vault_ephemeral":vault.ephemeral}
 @app.get("/api/connections")
 def connections(): return [{"provider":n,"configured":n=="mock","mode":"demo" if n=="mock" else "environment"} for n in providers]
 @app.get("/api/profiles")
 def get_profiles(): return profiles
 @app.post("/api/profiles")
 def add_profile(body:ConnectionProfile,x_user:str|None=Header(default="demo@peacloud.local")):
-    item=body.model_dump(); item["id"]=str(uuid4()); profiles.append(item); record(x_user,"profile.create",f"{body.provider}:{body.name}"); return item
+    item=body.model_dump(); item["id"]=str(uuid4()); profiles.append(item); store.put("profile",item); record(x_user,"profile.create",f"{body.provider}:{body.name}"); return item
 @app.post("/api/secrets")
 def add_secret(body:SecretInput,x_role:str|None=Header(default="operator")):
     if role(x_role)!="admin": raise HTTPException(403,"Admin role required")
@@ -36,6 +39,27 @@ def secret_names(x_role:str|None=Header(default="operator")):
     if role(x_role)!="admin": raise HTTPException(403,"Admin role required")
     return {"names":vault.names(),"values_exposed":False}
 
+
+
+@app.post("/api/profiles/wizard")
+def profile_wizard(body:ProfileWizardInput,x_user:str|None=Header(default="demo@peacloud.local"),x_role:str|None=Header(default="operator")):
+    if role(x_role)!="admin": raise HTTPException(403,"Admin role required")
+    guidance={
+      "aws":{"sso":"Run aws configure sso, then aws sso login; set AWS_PROFILE for PeaCloud.","environment":"Use the boto3 credential chain; prefer short-lived role credentials."},
+      "azure":{"managed_identity":"Deploy PeaCloud in Azure and assign a managed identity plus minimum Azure RBAC roles.","environment":"Use DefaultAzureCredential and AZURE_SUBSCRIPTION_ID."},
+      "gcp":{"workload_identity":"Configure Workload Identity Federation and GCP_PROJECT_ID.","adc":"Run gcloud auth application-default login for local development."},
+      "mock":{"environment":"No credentials required."}}
+    item=body.model_dump(); item["id"]=str(uuid4()); item["created_at"]=now(); item["status"]="configured" if body.provider=="mock" else "pending_test"
+    profiles.append(item); store.put("profile",item); record(x_user,"profile.wizard",f"{body.provider}:{body.auth_method}")
+    return {"profile":item,"next_step":guidance.get(body.provider,{}).get(body.auth_method,"Configure the selected credential provider, then test the connection.")}
+@app.post("/api/scheduler/run-due")
+def scheduler_run(body:ScheduleRunInput,x_role:str|None=Header(default="operator")):
+    if role(x_role)!="admin": raise HTTPException(403,"Admin role required")
+    from datetime import datetime,timezone
+    base=datetime.now(timezone.utc); dt=base.replace(minute=body.minute if body.minute is not None else base.minute,hour=body.hour if body.hour is not None else base.hour,day=body.day if body.day is not None else base.day,month=body.month if body.month is not None else base.month)
+    return run_due(schedules,providers,policy,record,dt)
+@app.get("/api/system/storage")
+def storage_status(): return {"engine":"sqlite","path":store.path,"profiles":len(profiles),"schedules":len(schedules),"persistent":True}
 
 @app.get("/api/resources/{provider}/{resource_id}")
 def resource_detail(provider:str,resource_id:str):
@@ -53,13 +77,13 @@ def get_schedules(): return schedules
 def add_schedule(body:ScheduleInput,x_user:str|None=Header(default="demo@peacloud.local"),x_role:str|None=Header(default="operator")):
     if role(x_role) not in {"operator","admin"}: raise HTTPException(403,"Operator role required")
     if not body.cron.strip(): raise HTTPException(400,"Cron expression required")
-    item=body.model_dump(); item["id"]=str(uuid4()); item["created_at"]=now(); schedules.append(item); record(x_user,"schedule.create",f"{body.provider}:{body.resource_id}:{body.action}:{body.cron}"); return item
+    item=body.model_dump(); item["id"]=str(uuid4()); item["created_at"]=now(); schedules.append(item); store.put("schedule",item); record(x_user,"schedule.create",f"{body.provider}:{body.resource_id}:{body.action}:{body.cron}"); return item
 @app.delete("/api/schedules/{schedule_id}")
 def delete_schedule(schedule_id:str,x_user:str|None=Header(default="demo@peacloud.local"),x_role:str|None=Header(default="operator")):
     if role(x_role) not in {"operator","admin"}: raise HTTPException(403,"Operator role required")
     idx=next((i for i,x in enumerate(schedules) if x["id"]==schedule_id),None)
     if idx is None: raise HTTPException(404,"Schedule not found")
-    item=schedules.pop(idx); record(x_user,"schedule.delete",schedule_id); return item
+    item=schedules.pop(idx); store.delete("schedule",schedule_id); record(x_user,"schedule.delete",schedule_id); return item
 @app.get("/api/costs/summary")
 def cost_summary(): return {"currency":"USD","estimated_monthly":0,"covered_resources":len(providers["mock"].list_resources()),"status":"mock-only","note":"Real-provider billing APIs are not enabled in this release"}
 

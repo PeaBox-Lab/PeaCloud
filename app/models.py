@@ -12,3 +12,7 @@ class Operation(BaseModel):
     id:str; timestamp:str; user:str; provider:str; resource_id:str; action:str; status:str; detail:str
 class ScheduleInput(BaseModel):
     resource_id:str; provider:ProviderName; action:Literal['start','stop','restart']; cron:str; enabled:bool=True
+class ProfileWizardInput(BaseModel):
+    provider:ProviderName; name:str; account_id:str=''; region:str=''; auth_method:Literal['environment','sso','managed_identity','workload_identity','adc']='environment'
+class ScheduleRunInput(BaseModel):
+    minute:int|None=None; hour:int|None=None; day:int|None=None; month:int|None=None; weekday:int|None=None

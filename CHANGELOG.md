@@ -1,4 +1,12 @@
 # Changelog
+## v0.5.0
+- Added SQLite persistence for profiles and schedules.
+- Added React cloud connection wizard with provider-specific authentication methods.
+- Added schedule execution engine with cron matching and policy checks.
+- Added admin-only scheduler execution endpoint.
+- Added storage diagnostics endpoint.
+- Preserved all v0.1.0-v0.4.0 features cumulatively.
+
 ## v0.4.0
 - Added automation schedules workspace to the React console.
 - Added schedule create/list/delete REST APIs with RBAC.
