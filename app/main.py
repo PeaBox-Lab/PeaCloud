@@ -3,15 +3,15 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from datetime import datetime, timezone
 from uuid import uuid4
-from app.models import ActionRequest, ConnectionTest, ConnectionProfile, SecretInput, Operation
+from app.models import ActionRequest, ConnectionTest, ConnectionProfile, SecretInput, Operation, ScheduleInput
 from app.security import SecretVault
 from app.governance import PolicyEngine
 from app.providers.mock import MockProvider
 from app.providers.cloud import AWSProvider, AzureProvider, GCPProvider
 
-app=FastAPI(title="PeaCloud",version="0.3.0")
+app=FastAPI(title="PeaCloud",version="0.4.0")
 providers={"mock":MockProvider(),"aws":AWSProvider(),"azure":AzureProvider(),"gcp":GCPProvider()}
-operations=[]; audit=[]; profiles=[]
+operations=[]; audit=[]; profiles=[]; schedules=[]
 vault=SecretVault(); policy=PolicyEngine()
 
 def now(): return datetime.now(timezone.utc).isoformat()
@@ -19,7 +19,7 @@ def role(x_role): return x_role or "operator"
 def record(user,event,detail): audit.insert(0,{"timestamp":now(),"user":user,"event":event,"detail":detail})
 
 @app.get("/api/health")
-def health(): return {"status":"ok","version":"0.3.0","real_changes_enabled":False,"vault_ephemeral":vault.ephemeral}
+def health(): return {"status":"ok","version":"0.4.0","real_changes_enabled":False,"vault_ephemeral":vault.ephemeral}
 @app.get("/api/connections")
 def connections(): return [{"provider":n,"configured":n=="mock","mode":"demo" if n=="mock" else "environment"} for n in providers]
 @app.get("/api/profiles")
@@ -35,6 +35,33 @@ def add_secret(body:SecretInput,x_role:str|None=Header(default="operator")):
 def secret_names(x_role:str|None=Header(default="operator")):
     if role(x_role)!="admin": raise HTTPException(403,"Admin role required")
     return {"names":vault.names(),"values_exposed":False}
+
+
+@app.get("/api/resources/{provider}/{resource_id}")
+def resource_detail(provider:str,resource_id:str):
+    if provider not in providers: raise HTTPException(404,"Provider not found")
+    try: items=providers[provider].list_resources()
+    except Exception as e: raise HTTPException(400,str(e))
+    r=next((x for x in items if x.id==resource_id),None)
+    if not r: raise HTTPException(404,"Resource not found")
+    data=r.model_dump(); data["capabilities"]=["start","stop","restart","snapshot"] if r.type=="virtual_machine" else []
+    data["estimated_monthly_cost"]={"currency":"USD","amount":0 if provider=="mock" else None,"status":"demo" if provider=="mock" else "provider-cost-integration-required"}
+    return data
+@app.get("/api/schedules")
+def get_schedules(): return schedules
+@app.post("/api/schedules")
+def add_schedule(body:ScheduleInput,x_user:str|None=Header(default="demo@peacloud.local"),x_role:str|None=Header(default="operator")):
+    if role(x_role) not in {"operator","admin"}: raise HTTPException(403,"Operator role required")
+    if not body.cron.strip(): raise HTTPException(400,"Cron expression required")
+    item=body.model_dump(); item["id"]=str(uuid4()); item["created_at"]=now(); schedules.append(item); record(x_user,"schedule.create",f"{body.provider}:{body.resource_id}:{body.action}:{body.cron}"); return item
+@app.delete("/api/schedules/{schedule_id}")
+def delete_schedule(schedule_id:str,x_user:str|None=Header(default="demo@peacloud.local"),x_role:str|None=Header(default="operator")):
+    if role(x_role) not in {"operator","admin"}: raise HTTPException(403,"Operator role required")
+    idx=next((i for i,x in enumerate(schedules) if x["id"]==schedule_id),None)
+    if idx is None: raise HTTPException(404,"Schedule not found")
+    item=schedules.pop(idx); record(x_user,"schedule.delete",schedule_id); return item
+@app.get("/api/costs/summary")
+def cost_summary(): return {"currency":"USD","estimated_monthly":0,"covered_resources":len(providers["mock"].list_resources()),"status":"mock-only","note":"Real-provider billing APIs are not enabled in this release"}
 
 @app.post("/api/connections/test")
 def test_connection(body:ConnectionTest,x_user:str|None=Header(default="demo@peacloud.local")):

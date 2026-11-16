@@ -10,3 +10,5 @@ class ConnectionProfile(BaseModel): provider:ProviderName; name:str; account_id:
 class SecretInput(BaseModel): name:str; value:str
 class Operation(BaseModel):
     id:str; timestamp:str; user:str; provider:str; resource_id:str; action:str; status:str; detail:str
+class ScheduleInput(BaseModel):
+    resource_id:str; provider:ProviderName; action:Literal['start','stop','restart']; cron:str; enabled:bool=True

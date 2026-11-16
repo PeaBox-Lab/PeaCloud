@@ -1,4 +1,11 @@
 # Changelog
+## v0.4.0
+- Added automation schedules workspace to the React console.
+- Added schedule create/list/delete REST APIs with RBAC.
+- Added normalized resource-detail and capabilities API.
+- Added explicit FinOps cost-summary integration boundary.
+- Preserved all earlier functionality cumulatively.
+
 ## v0.3.0
 - Rebuilt the GUI as React + TypeScript + Vite.
 - Added responsive multi-cloud dashboard with provider inventory chart.

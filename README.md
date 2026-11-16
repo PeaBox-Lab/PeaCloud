@@ -1,4 +1,4 @@
-# PeaCloud v0.3.0
+# PeaCloud v0.4.0
 
 A safe multi-cloud management MVP for AWS, Microsoft Azure, Google Cloud, and a built-in mock provider.
 
@@ -126,3 +126,7 @@ cd frontend
 npm install
 npm run build
 ```
+
+
+## v0.4.0
+Adds React automation schedules, normalized resource details/capabilities, schedule RBAC APIs, and a cost-summary integration boundary.
