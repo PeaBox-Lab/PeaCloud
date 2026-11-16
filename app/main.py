@@ -3,26 +3,27 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from datetime import datetime, timezone
 from uuid import uuid4
-from app.models import ActionRequest, ConnectionTest, ConnectionProfile, SecretInput, Operation, ScheduleInput, ProfileWizardInput, ScheduleRunInput
+from app.models import ActionRequest, ConnectionTest, ConnectionProfile, SecretInput, Operation, ScheduleInput, ProfileWizardInput, ScheduleRunInput, ApprovalDecision
 from app.security import SecretVault
 from app.governance import PolicyEngine
 from app.store import Store
 from app.scheduler import run_due
+from app.approvals import needs_approval, make_request
 from app.providers.mock import MockProvider
 from app.providers.cloud import AWSProvider, AzureProvider, GCPProvider
 
-app=FastAPI(title="PeaCloud",version="0.5.0")
+app=FastAPI(title="PeaCloud",version="0.6.0")
 providers={"mock":MockProvider(),"aws":AWSProvider(),"azure":AzureProvider(),"gcp":GCPProvider()}
 operations=[]; audit=[]; profiles=[]; schedules=[]
 vault=SecretVault(); policy=PolicyEngine(); store=Store()
-profiles=store.list("profile"); schedules=store.list("schedule")
+profiles=store.list("profile"); schedules=store.list("schedule"); approvals=store.list("approval")
 
 def now(): return datetime.now(timezone.utc).isoformat()
 def role(x_role): return x_role or "operator"
 def record(user,event,detail): audit.insert(0,{"timestamp":now(),"user":user,"event":event,"detail":detail})
 
 @app.get("/api/health")
-def health(): return {"status":"ok","version":"0.5.0","real_changes_enabled":False,"vault_ephemeral":vault.ephemeral}
+def health(): return {"status":"ok","version":"0.6.0","real_changes_enabled":False,"vault_ephemeral":vault.ephemeral}
 @app.get("/api/connections")
 def connections(): return [{"provider":n,"configured":n=="mock","mode":"demo" if n=="mock" else "environment"} for n in providers]
 @app.get("/api/profiles")
@@ -40,6 +41,26 @@ def secret_names(x_role:str|None=Header(default="operator")):
     return {"names":vault.names(),"values_exposed":False}
 
 
+
+
+@app.get("/api/approvals")
+def get_approvals(status:str|None=None): return [x for x in approvals if not status or x["status"]==status]
+@app.post("/api/approvals/{approval_id}/decision")
+def decide_approval(approval_id:str,body:ApprovalDecision,x_user:str|None=Header(default="demo@peacloud.local"),x_role:str|None=Header(default="operator")):
+    if role(x_role)!="admin": raise HTTPException(403,"Admin role required")
+    item=next((x for x in approvals if x["id"]==approval_id),None)
+    if not item: raise HTTPException(404,"Approval not found")
+    if item["status"]!="pending": raise HTTPException(409,"Approval already decided")
+    item["status"]=body.decision; item["comment"]=body.comment; item["decision_by"]=x_user; item["decision_at"]=now(); store.put("approval",item); record(x_user,"approval.decision",f"{approval_id}:{body.decision}"); return item
+@app.post("/api/approvals/{approval_id}/execute")
+def execute_approval(approval_id:str,x_user:str|None=Header(default="demo@peacloud.local"),x_role:str|None=Header(default="operator")):
+    if role(x_role)!="admin": raise HTTPException(403,"Admin role required")
+    item=next((x for x in approvals if x["id"]==approval_id),None)
+    if not item: raise HTTPException(404,"Approval not found")
+    if item["status"]!="approved": raise HTTPException(409,"Approval must be approved before execution")
+    try: result=providers[item["provider"]].act(item["resource_id"],item["action"])
+    except Exception as e: raise HTTPException(400,str(e))
+    item["status"]="executed"; item["executed_at"]=now(); item["executed_by"]=x_user; store.put("approval",item); record(x_user,"approval.execute",approval_id); return {"approval":item,"result":result}
 
 @app.post("/api/profiles/wizard")
 def profile_wizard(body:ProfileWizardInput,x_user:str|None=Header(default="demo@peacloud.local"),x_role:str|None=Header(default="operator")):
@@ -59,7 +80,7 @@ def scheduler_run(body:ScheduleRunInput,x_role:str|None=Header(default="operator
     base=datetime.now(timezone.utc); dt=base.replace(minute=body.minute if body.minute is not None else base.minute,hour=body.hour if body.hour is not None else base.hour,day=body.day if body.day is not None else base.day,month=body.month if body.month is not None else base.month)
     return run_due(schedules,providers,policy,record,dt)
 @app.get("/api/system/storage")
-def storage_status(): return {"engine":"sqlite","path":store.path,"profiles":len(profiles),"schedules":len(schedules),"persistent":True}
+def storage_status(): return {"engine":"sqlite","path":store.path,"profiles":len(profiles),"schedules":len(schedules),"approvals":len(approvals),"persistent":True}
 
 @app.get("/api/resources/{provider}/{resource_id}")
 def resource_detail(provider:str,resource_id:str):
@@ -113,6 +134,9 @@ def action(provider:str,resource_id:str,action:str,body:ActionRequest,x_user:str
     if provider not in providers: raise HTTPException(404,"Provider not found")
     resource=next((x for x in providers[provider].list_resources() if x.id==resource_id),None)
     if not resource: raise HTTPException(404,"Resource not found")
+    if needs_approval(resource,action) and role(x_role)!="admin":
+        req=make_request(x_user,provider,resource,action); approvals.insert(0,req); store.put("approval",req); record(x_user,"approval.request",req["id"])
+        return {"status":"pending_approval","detail":"Approval request created","approval_id":req["id"]}
     decision=policy.evaluate(action,resource,role(x_role))
     if not decision["allowed"]:
         record(x_user,"policy.block",f"{provider}:{resource_id}:{action}:"+"; ".join(decision["reasons"]))

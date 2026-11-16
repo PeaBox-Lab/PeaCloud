@@ -26,3 +26,12 @@ def test_profile_wizard_admin():
     assert c.post('/api/profiles/wizard',headers={'X-Role':'admin'},json=b).status_code==200
 def test_scheduler_admin_only():
     assert c.post('/api/scheduler/run-due',json={}).status_code==403
+def test_snapshot_creates_approval_for_operator():
+    r=c.post('/api/resources/mock/vm-demo-01/actions/snapshot',headers={'X-Role':'operator'},json={'confirmation':'SNAPSHOT vm-demo-01'})
+    assert r.status_code==200 and r.json()['status']=='pending_approval'
+    assert len(c.get('/api/approvals?status=pending').json())>=1
+def test_approval_admin_only():
+    r=c.post('/api/resources/mock/vm-demo-01/actions/snapshot',headers={'X-Role':'operator'},json={'confirmation':'SNAPSHOT vm-demo-01'})
+    aid=r.json()['approval_id']
+    assert c.post(f'/api/approvals/{aid}/decision',json={'decision':'approved'}).status_code==403
+    assert c.post(f'/api/approvals/{aid}/decision',headers={'X-Role':'admin'},json={'decision':'approved','comment':'reviewed'}).status_code==200

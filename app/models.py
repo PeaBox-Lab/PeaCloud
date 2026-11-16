@@ -16,3 +16,5 @@ class ProfileWizardInput(BaseModel):
     provider:ProviderName; name:str; account_id:str=''; region:str=''; auth_method:Literal['environment','sso','managed_identity','workload_identity','adc']='environment'
 class ScheduleRunInput(BaseModel):
     minute:int|None=None; hour:int|None=None; day:int|None=None; month:int|None=None; weekday:int|None=None
+class ApprovalDecision(BaseModel):
+    decision:Literal['approved','rejected']; comment:str=''

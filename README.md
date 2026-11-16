@@ -1,4 +1,4 @@
-# PeaCloud v0.5.0
+# PeaCloud v0.6.0
 
 A safe multi-cloud management MVP for AWS, Microsoft Azure, Google Cloud, and a built-in mock provider.
 
@@ -134,3 +134,7 @@ Adds React automation schedules, normalized resource details/capabilities, sched
 
 ## v0.5.0
 Adds persistent SQLite storage, a React connection wizard, provider-specific secure authentication guidance, and a policy-enforced cron schedule execution engine. Set `PEACLOUD_DB` to control the database path.
+
+
+## v0.6.0
+Adds persistent, auditable change approvals. Operator snapshot and production-resource changes create approval requests. Admins can approve/reject and then execute approved requests from the React Approvals workspace.

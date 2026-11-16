@@ -1,4 +1,12 @@
 # Changelog
+## v0.6.0
+- Added persistent change approval workflows.
+- Added React Approvals workspace for admin review.
+- Snapshot and production changes requested by operators now enter approval.
+- Added approve/reject and approved-change execution APIs.
+- Added approval audit records and storage diagnostics.
+- Preserved all prior features cumulatively.
+
 ## v0.5.0
 - Added SQLite persistence for profiles and schedules.
 - Added React cloud connection wizard with provider-specific authentication methods.
