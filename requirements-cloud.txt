@@ -1,0 +1,5 @@
+boto3>=1.35
+azure-identity>=1.19
+azure-mgmt-compute>=34
+azure-mgmt-resource>=23
+google-cloud-compute>=1.20

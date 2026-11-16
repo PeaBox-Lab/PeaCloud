@@ -1,0 +1,6 @@
+services:
+  peacloud:
+    build: .
+    ports: ["8000:8000"]
+    environment:
+      PEACLOUD_ALLOW_CHANGES: "false"
