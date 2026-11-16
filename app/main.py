@@ -3,27 +3,28 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from datetime import datetime, timezone
 from uuid import uuid4
-from app.models import ActionRequest, ConnectionTest, ConnectionProfile, SecretInput, Operation, ScheduleInput, ProfileWizardInput, ScheduleRunInput, ApprovalDecision
+from app.models import ActionRequest, ConnectionTest, ConnectionProfile, SecretInput, Operation, ScheduleInput, ProfileWizardInput, ScheduleRunInput, ApprovalDecision, DeploymentPlanInput, DeploymentApplyInput
 from app.security import SecretVault
 from app.governance import PolicyEngine
 from app.store import Store
 from app.scheduler import run_due
 from app.approvals import needs_approval, make_request
+from app.provisioning import plan as make_plan, apply_mock
 from app.providers.mock import MockProvider
 from app.providers.cloud import AWSProvider, AzureProvider, GCPProvider
 
-app=FastAPI(title="PeaCloud",version="0.6.0")
+app=FastAPI(title="PeaCloud",version="0.7.0")
 providers={"mock":MockProvider(),"aws":AWSProvider(),"azure":AzureProvider(),"gcp":GCPProvider()}
 operations=[]; audit=[]; profiles=[]; schedules=[]
 vault=SecretVault(); policy=PolicyEngine(); store=Store()
-profiles=store.list("profile"); schedules=store.list("schedule"); approvals=store.list("approval")
+profiles=store.list("profile"); schedules=store.list("schedule"); approvals=store.list("approval"); plans=store.list("plan"); deployments=store.list("deployment")
 
 def now(): return datetime.now(timezone.utc).isoformat()
 def role(x_role): return x_role or "operator"
 def record(user,event,detail): audit.insert(0,{"timestamp":now(),"user":user,"event":event,"detail":detail})
 
 @app.get("/api/health")
-def health(): return {"status":"ok","version":"0.6.0","real_changes_enabled":False,"vault_ephemeral":vault.ephemeral}
+def health(): return {"status":"ok","version":"0.7.0","real_changes_enabled":False,"vault_ephemeral":vault.ephemeral}
 @app.get("/api/connections")
 def connections(): return [{"provider":n,"configured":n=="mock","mode":"demo" if n=="mock" else "environment"} for n in providers]
 @app.get("/api/profiles")
@@ -43,10 +44,32 @@ def secret_names(x_role:str|None=Header(default="operator")):
 
 
 
+
+@app.get("/api/provisioning/plans")
+def provisioning_plans(): return plans
+@app.post("/api/provisioning/plans")
+def provisioning_plan(body:DeploymentPlanInput,x_user:str|None=Header(default="demo@peacloud.local"),x_role:str|None=Header(default="operator")):
+    if role(x_role) not in {"operator","admin"}: raise HTTPException(403,"Operator role required")
+    item=make_plan(body); item["requested_by"]=x_user; plans.insert(0,item); store.put("plan",item); record(x_user,"provision.plan",item["id"]); return item
+@app.post("/api/provisioning/plans/{plan_id}/apply")
+def provisioning_apply(plan_id:str,body:DeploymentApplyInput,x_user:str|None=Header(default="demo@peacloud.local"),x_role:str|None=Header(default="operator")):
+    item=next((x for x in plans if x["id"]==plan_id),None)
+    if not item: raise HTTPException(404,"Plan not found")
+    expected=f"APPLY {plan_id}"
+    if body.confirmation!=expected: raise HTTPException(400,f"Confirmation must be exactly: {expected}")
+    if item["risk"]=="high" and role(x_role)!="admin": raise HTTPException(403,"Production provisioning requires admin")
+    try: result=apply_mock(item,providers[item["provider"]])
+    except PermissionError as e: raise HTTPException(400,str(e))
+    deployments.insert(0,result); store.put("deployment",{"id":result["deployment_id"],**result}); item["status"]="applied";store.put("plan",item);record(x_user,"provision.apply",plan_id);return result
+@app.get("/api/provisioning/deployments")
+def provisioning_deployments(): return deployments
+@app.get("/api/provisioning/capabilities")
+def provisioning_capabilities(): return {"engine":"PeaCloud plan engine","real_provider_mode":"preview-only","mock_apply":True,"iac_targets":["Pulumi Automation API","Terraform"],"resource_types":["virtual_machine","object_storage","database"]}
+
 @app.get("/api/approvals")
 def get_approvals(status:str|None=None): return [x for x in approvals if not status or x["status"]==status]
 @app.post("/api/approvals/{approval_id}/decision")
-def decide_approval(approval_id:str,body:ApprovalDecision,x_user:str|None=Header(default="demo@peacloud.local"),x_role:str|None=Header(default="operator")):
+def decide_approval(approval_id:str,body:ApprovalDecision, DeploymentPlanInput, DeploymentApplyInput,x_user:str|None=Header(default="demo@peacloud.local"),x_role:str|None=Header(default="operator")):
     if role(x_role)!="admin": raise HTTPException(403,"Admin role required")
     item=next((x for x in approvals if x["id"]==approval_id),None)
     if not item: raise HTTPException(404,"Approval not found")
@@ -80,7 +103,7 @@ def scheduler_run(body:ScheduleRunInput,x_role:str|None=Header(default="operator
     base=datetime.now(timezone.utc); dt=base.replace(minute=body.minute if body.minute is not None else base.minute,hour=body.hour if body.hour is not None else base.hour,day=body.day if body.day is not None else base.day,month=body.month if body.month is not None else base.month)
     return run_due(schedules,providers,policy,record,dt)
 @app.get("/api/system/storage")
-def storage_status(): return {"engine":"sqlite","path":store.path,"profiles":len(profiles),"schedules":len(schedules),"approvals":len(approvals),"persistent":True}
+def storage_status(): return {"engine":"sqlite","path":store.path,"profiles":len(profiles),"schedules":len(schedules),"approvals":len(approvals),"plans":len(plans),"deployments":len(deployments),"persistent":True}
 
 @app.get("/api/resources/{provider}/{resource_id}")
 def resource_detail(provider:str,resource_id:str):

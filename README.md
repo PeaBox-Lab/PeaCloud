@@ -1,4 +1,4 @@
-# PeaCloud v0.6.0
+# PeaCloud v0.7.0
 
 A safe multi-cloud management MVP for AWS, Microsoft Azure, Google Cloud, and a built-in mock provider.
 
@@ -138,3 +138,7 @@ Adds persistent SQLite storage, a React connection wizard, provider-specific sec
 
 ## v0.6.0
 Adds persistent, auditable change approvals. Operator snapshot and production-resource changes create approval requests. Admins can approve/reject and then execute approved requests from the React Approvals workspace.
+
+
+## v0.7.0
+Adds a plan-before-apply provisioning workspace. Mock deployments can be applied end to end. AWS/Azure/GCP provisioning deliberately remains preview-only pending Pulumi Automation API or Terraform runner integration. Cost values are planning hints, not provider quotes.

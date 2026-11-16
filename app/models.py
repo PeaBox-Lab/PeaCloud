@@ -18,3 +18,13 @@ class ScheduleRunInput(BaseModel):
     minute:int|None=None; hour:int|None=None; day:int|None=None; month:int|None=None; weekday:int|None=None
 class ApprovalDecision(BaseModel):
     decision:Literal['approved','rejected']; comment:str=''
+class DeploymentPlanInput(BaseModel):
+    provider:ProviderName
+    resource_type:Literal['virtual_machine','object_storage','database']
+    name:str
+    region:str
+    environment:Literal['dev','test','prod']='dev'
+    size:str='small'
+    tags:dict[str,str]=Field(default_factory=dict)
+class DeploymentApplyInput(BaseModel):
+    confirmation:str

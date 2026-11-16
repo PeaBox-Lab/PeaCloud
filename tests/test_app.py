@@ -35,3 +35,12 @@ def test_approval_admin_only():
     aid=r.json()['approval_id']
     assert c.post(f'/api/approvals/{aid}/decision',json={'decision':'approved'}).status_code==403
     assert c.post(f'/api/approvals/{aid}/decision',headers={'X-Role':'admin'},json={'decision':'approved','comment':'reviewed'}).status_code==200
+def test_provisioning_preview_and_mock_apply():
+    b={'provider':'mock','resource_type':'virtual_machine','name':'demo-new','region':'india-north','environment':'dev','size':'small'}
+    r=c.post('/api/provisioning/plans',json=b); assert r.status_code==200; pid=r.json()['id']; assert r.json()['cost_estimate']['authoritative'] is False
+    assert c.post(f'/api/provisioning/plans/{pid}/apply',json={'confirmation':'wrong'}).status_code==400
+    assert c.post(f'/api/provisioning/plans/{pid}/apply',json={'confirmation':f'APPLY {pid}'}).status_code==200
+def test_real_provider_apply_is_preview_only():
+    b={'provider':'aws','resource_type':'virtual_machine','name':'preview','region':'ap-south-1','environment':'dev','size':'small'}
+    r=c.post('/api/provisioning/plans',json=b); pid=r.json()['id']
+    assert c.post(f'/api/provisioning/plans/{pid}/apply',json={'confirmation':f'APPLY {pid}'}).status_code==400

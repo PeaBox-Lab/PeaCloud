@@ -1,4 +1,13 @@
 # Changelog
+## v0.7.0
+- Added provisioning workspace with plan-before-apply workflow.
+- Added persistent provisioning plans and deployment records.
+- Added VM, object-storage and database blueprint previews.
+- Added risk classification and explicitly non-authoritative cost hints.
+- Added typed apply confirmation and production admin gate.
+- Mock apply is functional; AWS/Azure/GCP remain preview-only until the IaC runner is configured.
+- Preserved all prior features cumulatively.
+
 ## v0.6.0
 - Added persistent change approval workflows.
 - Added React Approvals workspace for admin review.
