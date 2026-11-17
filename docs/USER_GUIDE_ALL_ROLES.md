@@ -1,23 +1,25 @@
-# PeaCloud v0.14.0 User Guide for All Roles
+# PeaCloud v0.15.0 User Guide for All Roles
 ## Customer / Viewer
-View tenant inventory, health and advisory FinOps data. Viewer cannot mutate infrastructure. Never submit credentials to support.
+Use tenant-scoped inventory, health and advisory cost views. Viewer remains non-mutating. Never share credentials with Support.
 ## Operator / NOC
-Validate tenant, owner, environment, resource ID and impact. Typed confirmation remains mandatory. Use approval flows for high-risk/production changes.
+Routine cloud work requires correct tenant/resource context and typed confirmation. Long-running work should be sent to the job queue rather than tying up a request. Operators can create jobs; job reads are tenant isolated.
 ## Administrator / Tenant Admin
-Production uses validated OIDC. Admin can assign Viewer/Operator/Admin roles only inside the Admin's own tenant. Review role changes and audit evidence. Configure managed secret backend instead of environment secrets for mature production deployments.
+Admin controls roles and privileged workflows only within the signed tenant. Production requires OIDC/JWKS. Managed secret stores are preferred. Review rate-limit, queue and observability status before major changes.
 ## SRE / DevOps
-Rate limiting defaults to 120 requests per 60 seconds per tenant/client key and is configurable. Mutating API requests produce hash-chained JSONL audit evidence. Readiness includes database health. PostgreSQL tenant transactions set `peacloud.tenant_id` using transaction-local context in tenant repository operations.
+Production Compose now uses PostgreSQL plus Redis. Redis provides a shared multi-replica limiter and job queue. Kubernetes deployment assets include two replicas, liveness/readiness probes, non-root/read-only security context, HPA 2-10 replicas at 70% CPU, and a PodDisruptionBudget.
+## Platform / Cloud Engineer
+Helm image defaults are placeholders. Replace `OWNER`, configure OIDC/database/Redis through Kubernetes Secrets or an external-secrets operator, and never put secrets in values.yaml. Use managed Redis/PostgreSQL for serious production.
+## Observability / SRE
+`/api/observability/status` exposes request/error counters and whether an OTLP endpoint is configured. v0.15 creates the OpenTelemetry dependency/configuration boundary; full trace/metric exporters and dashboards remain a later production gate.
 ## Security / GRC
-RLS SQL covers tenant_records and principals. Test Tenant A -> Tenant B denial in real PostgreSQL before GA. Audit hash chaining detects alteration order but is not a substitute for external WORM/immutable storage. Send production audit data to a write-protected SIEM/object store in the next deployment layer.
-## Cloud / Platform Engineer
-Secret backend adapters now exist for AWS Secrets Manager, Azure Key Vault and Google Secret Manager. Use provider-native workload identity/managed identity rather than embedded credentials. Secret values never have a listing API.
+Distributed Redis limiting prevents simple per-replica bypass. It does not replace edge WAF/API-gateway protection. Kubernetes containers run non-root with seccomp RuntimeDefault, all capabilities dropped, read-only root filesystem and no privilege escalation.
 ## DBA
-Alembic migration 002 adds tenant/role indexing. Apply migration, RLS policies and backup/restore tests in staging before production.
+PostgreSQL migrations/RLS remain mandatory. Redis persistence is not a system of record. Back up PostgreSQL/PITR and use managed Redis HA where queue loss matters.
 ## Developer / Contributor
-Local environment secret backend and SQLite remain development defaults. Keep provider packages optional. Add negative authorization and tenant tests to every security-sensitive PR.
-## FinOps / Finance
-Costs remain advisory/non-authoritative until actual provider billing connectors arrive. No recommendation auto-executes.
+Without `PEACLOUD_REDIS_URL`, PeaCloud falls back to local limiter/queue for development. Tests must verify tenant job isolation and production capabilities.
+## FinOps
+Cost estimates remain advisory/non-authoritative. No recommendation auto-executes.
 ## Support / Customer Success
-Collect version, tenant, provider, region, resource ID, UTC time and sanitized error. Never collect JWTs, cloud keys, passwords, vault exports or database credentials.
+Collect version, tenant, provider, region, resource ID/job ID, UTC time and sanitized error. Never collect bearer tokens, cloud keys, Redis/Postgres passwords or vault exports.
 ## Maintainer / Release Manager
-Require CI, CodeQL, migration checks, Scorecard review and updated role/user-story docs. Publish known production gaps openly.
+Validate tests, migrations, Helm rendering/lint when available, container build, CodeQL, Scorecard and docs. Replace GitHub/registry `OWNER` placeholders before public release.

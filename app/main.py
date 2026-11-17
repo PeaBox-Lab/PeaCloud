@@ -9,6 +9,8 @@ from app.db.session import init_db, db_health
 from app.tenancy.repository import ensure_schema,list_records,role_for,upsert_role
 from app.security.rate_limit import limiter
 from app.audit.sink import sink as audit_sink
+from app.jobs.queue import queue as job_queue
+from app.observability.telemetry import telemetry
 from app.secrets.providers import backend as secret_backend
 from contextlib import asynccontextmanager
 @asynccontextmanager
@@ -22,6 +24,7 @@ async def production_controls(request,call_next):
     key=(request.headers.get('X-Tenant') or 'anonymous')+':'+(request.client.host if request.client else 'local')
     limiter.check(key)
     response=await call_next(request)
+    telemetry.record(response.status_code)
     if request.method in {'POST','PUT','PATCH','DELETE'}:
         audit_sink.write({'method':request.method,'path':request.url.path,'status':response.status_code,'tenant_hint':request.headers.get('X-Tenant','oidc')})
     return response
@@ -45,10 +48,25 @@ def tenant_context(p=__import__('fastapi').Depends(current_principal)):
 
 
 
+
+@app.get('/api/observability/status')
+def observability_status():return telemetry.snapshot()
+@app.get('/api/jobs/status')
+def jobs_status():return {'queue_mode':job_queue.mode}
+@app.post('/api/jobs/{kind}')
+def enqueue_job(kind:str,p=Depends(current_principal)):
+    require_role(p,'operator');return job_queue.enqueue(kind,{'tenant':p.tenant,'subject':p.subject})
+@app.get('/api/jobs/{job_id}')
+def get_job(job_id:str,p=Depends(current_principal)):
+    j=job_queue.get(job_id)
+    if not j:raise HTTPException(404,'Job not found')
+    if j.get('payload',{}).get('tenant')!=p.tenant:raise HTTPException(403,'Cross-tenant job read denied')
+    return j
+
 @app.get('/api/security/capabilities')
 def security_capabilities():
     import os
-    return {'rate_limit':{'requests':limiter.limit,'window_seconds':limiter.window},'secret_backend':os.getenv('PEACLOUD_SECRET_BACKEND','environment'),'audit_sink':'hash-chained-jsonl','postgres_rls_tenant_context':True}
+    return {'rate_limit':{'requests':limiter.limit,'window_seconds':limiter.window,'mode':limiter.mode},'secret_backend':os.getenv('PEACLOUD_SECRET_BACKEND','environment'),'audit_sink':'hash-chained-jsonl','postgres_rls_tenant_context':True}
 @app.post('/api/admin/roles/{tenant}/{subject}/{new_role}')
 def assign_role(tenant:str,subject:str,new_role:str,p=Depends(current_principal)):
     require_role(p,'admin')

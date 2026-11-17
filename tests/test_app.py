@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 from app.main import app
 c=TestClient(app)
-def test_health():assert c.get('/api/health').json()['version']=='0.14.0'
+def test_health():assert c.get('/api/health').json()['version']=='0.15.0'
 def test_inventory():assert c.get('/api/inventory?limit=2').json()['total']==4
 def test_rbac():assert c.post('/api/resources/vm-demo-01/actions/stop',headers={'X-Role':'viewer'},json={'confirmation':'STOP vm-demo-01'}).status_code==403
 def test_action():assert c.post('/api/resources/vm-demo-01/actions/stop',json={'confirmation':'STOP vm-demo-01'}).status_code==200
@@ -37,3 +37,12 @@ def test_security_capabilities_no_secrets():
     r=c.get('/api/secrets/status',headers={'X-Role':'admin','X-Tenant':'tenant-a'});assert r.json()['values_exposed'] is False
 def test_rls_sql_principals_and_records():
     s=open('migrations/postgres_rls.sql').read();assert 'tenant_records_isolation' in s and 'principals_isolation' in s and 'current_setting' in s
+def test_job_tenant_isolation():
+    a=c.post('/api/jobs/discovery',headers={'X-Role':'operator','X-User':'alice','X-Tenant':'tenant-a'});assert a.status_code==200;j=a.json()['id']
+    assert c.get(f'/api/jobs/{j}',headers={'X-Role':'viewer','X-Tenant':'tenant-a'}).status_code==200
+    assert c.get(f'/api/jobs/{j}',headers={'X-Role':'viewer','X-Tenant':'tenant-b'}).status_code==403
+def test_observability_and_queue_mode():
+    assert c.get('/api/observability/status').status_code==200
+    assert c.get('/api/jobs/status').json()['queue_mode']=='local'
+def test_helm_hardening_present():
+    s=open('deploy/helm/peacloud/templates/deployment.yaml').read();assert 'runAsNonRoot: true' in s and 'readOnlyRootFilesystem: true' in s and 'allowPrivilegeEscalation: false' in s

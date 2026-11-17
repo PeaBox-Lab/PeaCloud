@@ -1,0 +1,2 @@
+# Observability Guide
+OpenTelemetry packages and `OTEL_EXPORTER_OTLP_ENDPOINT` configuration are included. `/api/observability/status` exposes basic request/error/uptime counters. Before GA, add actual OTLP trace/metric/log exporters, semantic attributes for tenant/provider/service without sensitive data, dashboards and SLOs. Initial production targets: API availability >=99.9%, p95 control-plane read latency <500 ms excluding provider API time, and alert on sustained 5xx >2% for 5 minutes.

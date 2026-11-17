@@ -1,0 +1,2 @@
+# Jobs and Scheduler
+v0.15 introduces a Redis-backed job-envelope queue and local development fallback. Job payloads contain tenant/subject context and reads enforce tenant equality. This is the control-plane foundation, not a full worker runtime. v0.16 should add dedicated workers, retries with backoff, idempotency keys, dead-letter handling and per-job audit/metrics before critical cloud mutations are moved off-request.

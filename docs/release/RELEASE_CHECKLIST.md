@@ -1,13 +1,12 @@
 # Release Checklist
 - [ ] Backend tests and clean Alembic upgrade pass.
-- [ ] PostgreSQL Tenant A -> Tenant B RLS denial tested.
-- [ ] Role assignment cross-tenant denial tested.
-- [ ] Rate-limit threshold and 429 tested.
-- [ ] Audit hash-chain creation/rotation/export assessed.
-- [ ] Secret backend test uses workload identity, not embedded credentials.
-- [ ] React production build/container build pass.
-- [ ] OIDC valid/wrong issuer/wrong audience/invalid signature/expired/unknown kid tests pass.
+- [ ] Redis limiter shared-mode test passes.
+- [ ] Tenant job isolation negative test passes.
+- [ ] PostgreSQL RLS Tenant A -> B test passes in staging.
+- [ ] Helm chart renders/lints; image owner placeholder replaced.
+- [ ] Kubernetes probes/security context/HPA/PDB reviewed.
+- [ ] React production build and container build pass.
+- [ ] OIDC/JWKS negative tests pass.
 - [ ] CodeQL, Dependabot, OpenSSF Scorecard reviewed.
 - [ ] README/changelog/all-role guide/user stories updated.
-- [ ] No secrets/customer data in Git or artifacts.
-- [ ] Known pre-GA gaps documented.
+- [ ] Known pre-GA gaps disclosed.

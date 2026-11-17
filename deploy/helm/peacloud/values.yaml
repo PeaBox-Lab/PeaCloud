@@ -1,0 +1,12 @@
+replicaCount: 2
+image: {repository: ghcr.io/OWNER/peacloud, tag: v0.15.0, pullPolicy: IfNotPresent}
+service: {type: ClusterIP, port: 8000}
+env:
+  PEACLOUD_ENV: production
+  PEACLOUD_AUTH_MODE: oidc
+  PEACLOUD_RATE_LIMIT: "120"
+  PEACLOUD_RATE_WINDOW_SECONDS: "60"
+resources:
+  requests: {cpu: 100m, memory: 128Mi}
+  limits: {cpu: 1000m, memory: 512Mi}
+autoscaling: {enabled: true, minReplicas: 2, maxReplicas: 10, targetCPUUtilizationPercentage: 70}

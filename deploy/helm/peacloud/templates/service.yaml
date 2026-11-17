@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Service
+metadata: {name: peacloud}
+spec:
+  selector: {app: peacloud}
+  ports: [{port: {{ .Values.service.port }}, targetPort: 8000}]
+  type: {{ .Values.service.type }}

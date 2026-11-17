@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: peacloud}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector: {matchLabels: {app: peacloud}}
+  template:
+    metadata: {labels: {app: peacloud}}
+    spec:
+      securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: api
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          ports: [{containerPort: 8000}]
+          env:
+            {{- range $k,$v := .Values.env }}
+            - {name: {{ $k }}, value: {{ $v | quote }}}
+            {{- end }}
+          readinessProbe: {httpGet: {path: /api/readiness, port: 8000}, initialDelaySeconds: 5, periodSeconds: 10}
+          livenessProbe: {httpGet: {path: /api/liveness, port: 8000}, initialDelaySeconds: 10, periodSeconds: 20}
+          resources: {{ toYaml .Values.resources | nindent 12 }}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ["ALL"]}}

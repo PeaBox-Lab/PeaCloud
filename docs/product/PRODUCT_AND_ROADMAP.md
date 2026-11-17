@@ -1,8 +1,8 @@
 # PeaCloud Production Roadmap
-## Delivered through v0.14
-OIDC/JWKS, tenant context, PostgreSQL/Alembic, RLS policy and transaction tenant setting for tenant repository operations, persisted role assignments, managed secret backend adapters, rate limiting, tamper-evident audit stream, open-source/GitHub security workflows and all-role documentation.
-## Remaining gates
-- v0.15: shared Redis rate limiter/job broker, immutable external audit exporter, Kubernetes/Helm, background workers, HA scheduler, OpenTelemetry.
-- v0.16: actual cloud billing APIs, OPA policy bundles, SBOM/provenance and signed release artifacts.
-- v0.17: real provider sandbox E2E, PostgreSQL RLS integration/attack tests, load/failure testing and pen-test remediation.
-- v1.0: Production GA after critical evidence is complete.
+## Delivered through v0.15
+OIDC/JWKS, tenancy/PostgreSQL/RLS foundations, managed secret adapters, distributed Redis rate-limit boundary, Redis job queue foundation, hardened Kubernetes/Helm deployment, HA/HPA/PDB primitives and OpenTelemetry configuration boundary.
+## Next
+- v0.16: real background workers/retries/idempotency/DLQ; external immutable audit exporter; full OTLP exporters/SLO dashboards.
+- v0.17: real cloud billing APIs, OPA policies, SBOM/provenance and signed GitHub/GHCR artifacts.
+- v0.18: provider sandbox E2E, PostgreSQL RLS attack tests, load/failure/chaos testing and external penetration-test remediation.
+- v1.0 Production GA after critical evidence is complete.
