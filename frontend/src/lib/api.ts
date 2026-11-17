@@ -1,3 +1,0 @@
-export type Resource={id:string;provider:string;type:string;name:string;state:string;region:string;account:string;tags:Record<string,string>;metadata:Record<string,unknown>};
-export const headers=()=>({'Content-Type':'application/json','X-Role':localStorage.getItem('peacloud-role')||'operator','X-User':'demo@peacloud.local'});
-export async function api<T>(path:string,init:RequestInit={}):Promise<T>{const r=await fetch(path,{...init,headers:{...headers(),...(init.headers||{})}});const d=await r.json();if(!r.ok)throw new Error(typeof d.detail==='string'?d.detail:JSON.stringify(d.detail));return d as T}

@@ -1,0 +1,2 @@
+# Audit Guide
+v0.14 records mutating HTTP request metadata into a SHA-256 hash-chained JSONL stream. Chaining provides tamper-evidence for ordering, not immutable retention. Production should ship events immediately to protected external storage/SIEM with retention controls and monitored delivery failure. Do not put bearer tokens, provider credentials or request bodies containing secrets in audit events.

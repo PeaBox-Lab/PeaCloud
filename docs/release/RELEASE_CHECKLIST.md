@@ -1,0 +1,13 @@
+# Release Checklist
+- [ ] Backend tests and clean Alembic upgrade pass.
+- [ ] PostgreSQL Tenant A -> Tenant B RLS denial tested.
+- [ ] Role assignment cross-tenant denial tested.
+- [ ] Rate-limit threshold and 429 tested.
+- [ ] Audit hash-chain creation/rotation/export assessed.
+- [ ] Secret backend test uses workload identity, not embedded credentials.
+- [ ] React production build/container build pass.
+- [ ] OIDC valid/wrong issuer/wrong audience/invalid signature/expired/unknown kid tests pass.
+- [ ] CodeQL, Dependabot, OpenSSF Scorecard reviewed.
+- [ ] README/changelog/all-role guide/user stories updated.
+- [ ] No secrets/customer data in Git or artifacts.
+- [ ] Known pre-GA gaps documented.

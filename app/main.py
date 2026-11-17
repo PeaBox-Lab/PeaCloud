@@ -1,195 +1,129 @@
-from fastapi import FastAPI, Header, HTTPException
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
-from datetime import datetime, timezone
+from fastapi import FastAPI,Header,HTTPException,Depends
+from fastapi.middleware.cors import CORSMiddleware
 from uuid import uuid4
-from app.models import ActionRequest, ConnectionTest, ConnectionProfile, SecretInput, Operation, ScheduleInput, ProfileWizardInput, ScheduleRunInput, ApprovalDecision, DeploymentPlanInput, DeploymentApplyInput
-from app.security import SecretVault
-from app.governance import PolicyEngine
-from app.store import Store
-from app.scheduler import run_due
-from app.approvals import needs_approval, make_request
-from app.provisioning import plan as make_plan, apply_mock
-from app.iac import runner as iac_runner, IaCError
-from app.providers.mock import MockProvider
-from app.providers.cloud import AWSProvider, AzureProvider, GCPProvider
+from app.models import *
+from app.core import *
+from app.settings import settings
+from app.auth.oidc import current_principal, require_role
+from app.db.session import init_db, db_health
+from app.tenancy.repository import ensure_schema,list_records,role_for,upsert_role
+from app.security.rate_limit import limiter
+from app.audit.sink import sink as audit_sink
+from app.secrets.providers import backend as secret_backend
+from contextlib import asynccontextmanager
+@asynccontextmanager
+async def lifespan(app):
+    init_db();ensure_schema();yield
+app=FastAPI(title='PeaCloud',version=settings.app_version,docs_url='/docs' if settings.docs_enabled else None,redoc_url=None,lifespan=lifespan);app.add_middleware(CORSMiddleware,allow_origins=list(settings.allowed_origins),allow_methods=['GET','POST','DELETE'],allow_headers=['Content-Type','X-Role','X-User'])
+def role(x):return x or 'operator'
 
-app=FastAPI(title="PeaCloud",version="0.8.0")
-providers={"mock":MockProvider(),"aws":AWSProvider(),"azure":AzureProvider(),"gcp":GCPProvider()}
-operations=[]; audit=[]; profiles=[]; schedules=[]
-vault=SecretVault(); policy=PolicyEngine(); store=Store()
-profiles=store.list("profile"); schedules=store.list("schedule"); approvals=store.list("approval"); plans=store.list("plan"); deployments=store.list("deployment")
+@app.middleware('http')
+async def production_controls(request,call_next):
+    key=(request.headers.get('X-Tenant') or 'anonymous')+':'+(request.client.host if request.client else 'local')
+    limiter.check(key)
+    response=await call_next(request)
+    if request.method in {'POST','PUT','PATCH','DELETE'}:
+        audit_sink.write({'method':request.method,'path':request.url.path,'status':response.status_code,'tenant_hint':request.headers.get('X-Tenant','oidc')})
+    return response
 
-def now(): return datetime.now(timezone.utc).isoformat()
-def role(x_role): return x_role or "operator"
-def record(user,event,detail): audit.insert(0,{"timestamp":now(),"user":user,"event":event,"detail":detail})
+@app.get('/api/health')
+def health():return {'status':'ok','version':settings.app_version,'safe_mode':True,'environment':settings.environment}
 
-@app.get("/api/health")
-def health(): return {"status":"ok","version":"0.8.0","real_changes_enabled":False,"vault_ephemeral":vault.ephemeral}
-@app.get("/api/connections")
-def connections(): return [{"provider":n,"configured":n=="mock","mode":"demo" if n=="mock" else "environment"} for n in providers]
-@app.get("/api/profiles")
-def get_profiles(): return profiles
-@app.post("/api/profiles")
-def add_profile(body:ConnectionProfile,x_user:str|None=Header(default="demo@peacloud.local")):
-    item=body.model_dump(); item["id"]=str(uuid4()); profiles.append(item); store.put("profile",item); record(x_user,"profile.create",f"{body.provider}:{body.name}"); return item
-@app.post("/api/secrets")
-def add_secret(body:SecretInput,x_role:str|None=Header(default="operator")):
-    if role(x_role)!="admin": raise HTTPException(403,"Admin role required")
-    return vault.put(body.name,body.value)
-@app.get("/api/secrets")
-def secret_names(x_role:str|None=Header(default="operator")):
-    if role(x_role)!="admin": raise HTTPException(403,"Admin role required")
-    return {"names":vault.names(),"values_exposed":False}
+@app.get('/api/readiness')
+def readiness():
+    ok=db_health();return {'ready':ok,'checks':{'api':'ok','database':'ok' if ok else 'failed','inventory':'ok'},'version':settings.app_version}
+@app.get('/api/liveness')
+def liveness():return {'alive':True}
 
 
+@app.get('/api/auth/status')
+def auth_status(p=__import__('fastapi').Depends(current_principal)):
+    return {'subject':p.subject,'role':p.role,'tenant':p.tenant,'mode':__import__('os').getenv('PEACLOUD_AUTH_MODE','dev-header')}
+@app.get('/api/tenant/context')
+def tenant_context(p=__import__('fastapi').Depends(current_principal)):
+    return {'tenant_id':p.tenant,'isolation':'request-context','production_persistence':'postgresql-ready'}
 
 
 
-@app.get("/api/provisioning/plans")
-def provisioning_plans(): return plans
-@app.post("/api/provisioning/plans")
-def provisioning_plan(body:DeploymentPlanInput,x_user:str|None=Header(default="demo@peacloud.local"),x_role:str|None=Header(default="operator")):
-    if role(x_role) not in {"operator","admin"}: raise HTTPException(403,"Operator role required")
-    item=make_plan(body); item["requested_by"]=x_user; plans.insert(0,item); store.put("plan",item); record(x_user,"provision.plan",item["id"]); return item
-@app.post("/api/provisioning/plans/{plan_id}/apply")
-def provisioning_apply(plan_id:str,body:DeploymentApplyInput,x_user:str|None=Header(default="demo@peacloud.local"),x_role:str|None=Header(default="operator")):
-    item=next((x for x in plans if x["id"]==plan_id),None)
-    if not item: raise HTTPException(404,"Plan not found")
-    expected=f"APPLY {plan_id}"
-    if body.confirmation!=expected: raise HTTPException(400,f"Confirmation must be exactly: {expected}")
-    if item["risk"]=="high" and role(x_role)!="admin": raise HTTPException(403,"Production provisioning requires admin")
-    try:
-        if item["provider"]=="mock": result=apply_mock(item,providers[item["provider"]])
-        else:
-            out=iac_runner.terraform_apply(item); result={"deployment_id":str(uuid4()),"status":out["status"],"provider":item["provider"],"resource_name":item["name"],"message":"Terraform apply completed","applied_at":now(),"engine":"terraform"}
-    except (PermissionError,IaCError) as e: raise HTTPException(400,str(e))
-    deployments.insert(0,result); store.put("deployment",{"id":result["deployment_id"],**result}); item["status"]="applied";store.put("plan",item);record(x_user,"provision.apply",plan_id);return result
-@app.get("/api/provisioning/deployments")
-def provisioning_deployments(): return deployments
-@app.get("/api/provisioning/plans/{plan_id}/iac-preview")
-def iac_preview(plan_id:str):
-    item=next((x for x in plans if x["id"]==plan_id),None)
-    if not item: raise HTTPException(404,"Plan not found")
-    if item["provider"]=="mock": return {"engine":"mock","configuration":"# Mock provider does not require IaC","executable":True,"validated":True}
-    try:return iac_runner.terraform_preview(item)
-    except IaCError as e:raise HTTPException(400,str(e))
-@app.get("/api/provisioning/capabilities")
-def provisioning_capabilities(): return {"engine":"PeaCloud IaC runner","mock_apply":True,"iac":iac_runner.capabilities(),"resource_types":["virtual_machine","object_storage","database"],"supported_templates":["aws/virtual_machine","aws/object_storage","azure/object_storage","gcp/object_storage"]}
+@app.get('/api/security/capabilities')
+def security_capabilities():
+    import os
+    return {'rate_limit':{'requests':limiter.limit,'window_seconds':limiter.window},'secret_backend':os.getenv('PEACLOUD_SECRET_BACKEND','environment'),'audit_sink':'hash-chained-jsonl','postgres_rls_tenant_context':True}
+@app.post('/api/admin/roles/{tenant}/{subject}/{new_role}')
+def assign_role(tenant:str,subject:str,new_role:str,p=Depends(current_principal)):
+    require_role(p,'admin')
+    if p.tenant!=tenant:raise HTTPException(403,'Cross-tenant role administration denied')
+    if new_role not in {'viewer','operator','admin'}:raise HTTPException(400,'Invalid role')
+    return upsert_role(subject,tenant,new_role)
+@app.get('/api/admin/roles/{tenant}/{subject}')
+def get_role(tenant:str,subject:str,p=Depends(current_principal)):
+    require_role(p,'admin')
+    if p.tenant!=tenant:raise HTTPException(403,'Cross-tenant role read denied')
+    return {'tenant':tenant,'subject':subject,'role':role_for(subject,tenant)}
+@app.get('/api/secrets/status')
+def secrets_status(p=Depends(current_principal)):
+    require_role(p,'admin');b=secret_backend();return {'backend':b.name,'values_exposed':False}
 
-@app.get("/api/approvals")
-def get_approvals(status:str|None=None): return [x for x in approvals if not status or x["status"]==status]
-@app.post("/api/approvals/{approval_id}/decision")
-def decide_approval(approval_id:str,body:ApprovalDecision, DeploymentPlanInput, DeploymentApplyInput,x_user:str|None=Header(default="demo@peacloud.local"),x_role:str|None=Header(default="operator")):
-    if role(x_role)!="admin": raise HTTPException(403,"Admin role required")
-    item=next((x for x in approvals if x["id"]==approval_id),None)
-    if not item: raise HTTPException(404,"Approval not found")
-    if item["status"]!="pending": raise HTTPException(409,"Approval already decided")
-    item["status"]=body.decision; item["comment"]=body.comment; item["decision_by"]=x_user; item["decision_at"]=now(); store.put("approval",item); record(x_user,"approval.decision",f"{approval_id}:{body.decision}"); return item
-@app.post("/api/approvals/{approval_id}/execute")
-def execute_approval(approval_id:str,x_user:str|None=Header(default="demo@peacloud.local"),x_role:str|None=Header(default="operator")):
-    if role(x_role)!="admin": raise HTTPException(403,"Admin role required")
-    item=next((x for x in approvals if x["id"]==approval_id),None)
-    if not item: raise HTTPException(404,"Approval not found")
-    if item["status"]!="approved": raise HTTPException(409,"Approval must be approved before execution")
-    try: result=providers[item["provider"]].act(item["resource_id"],item["action"])
-    except Exception as e: raise HTTPException(400,str(e))
-    item["status"]="executed"; item["executed_at"]=now(); item["executed_by"]=x_user; store.put("approval",item); record(x_user,"approval.execute",approval_id); return {"approval":item,"result":result}
+@app.get('/api/tenant/records/{kind}')
+def tenant_records(kind:str,p=Depends(current_principal)):
+    return {'tenant_id':p.tenant,'items':list_records(p.tenant,kind)}
 
-@app.post("/api/profiles/wizard")
-def profile_wizard(body:ProfileWizardInput,x_user:str|None=Header(default="demo@peacloud.local"),x_role:str|None=Header(default="operator")):
-    if role(x_role)!="admin": raise HTTPException(403,"Admin role required")
-    guidance={
-      "aws":{"sso":"Run aws configure sso, then aws sso login; set AWS_PROFILE for PeaCloud.","environment":"Use the boto3 credential chain; prefer short-lived role credentials."},
-      "azure":{"managed_identity":"Deploy PeaCloud in Azure and assign a managed identity plus minimum Azure RBAC roles.","environment":"Use DefaultAzureCredential and AZURE_SUBSCRIPTION_ID."},
-      "gcp":{"workload_identity":"Configure Workload Identity Federation and GCP_PROJECT_ID.","adc":"Run gcloud auth application-default login for local development."},
-      "mock":{"environment":"No credentials required."}}
-    item=body.model_dump(); item["id"]=str(uuid4()); item["created_at"]=now(); item["status"]="configured" if body.provider=="mock" else "pending_test"
-    profiles.append(item); store.put("profile",item); record(x_user,"profile.wizard",f"{body.provider}:{body.auth_method}")
-    return {"profile":item,"next_step":guidance.get(body.provider,{}).get(body.auth_method,"Configure the selected credential provider, then test the connection.")}
-@app.post("/api/scheduler/run-due")
-def scheduler_run(body:ScheduleRunInput,x_role:str|None=Header(default="operator")):
-    if role(x_role)!="admin": raise HTTPException(403,"Admin role required")
-    from datetime import datetime,timezone
-    base=datetime.now(timezone.utc); dt=base.replace(minute=body.minute if body.minute is not None else base.minute,hour=body.hour if body.hour is not None else base.hour,day=body.day if body.day is not None else base.day,month=body.month if body.month is not None else base.month)
-    return run_due(schedules,providers,policy,record,dt)
-@app.get("/api/system/storage")
-def storage_status(): return {"engine":"sqlite","path":store.path,"profiles":len(profiles),"schedules":len(schedules),"approvals":len(approvals),"plans":len(plans),"deployments":len(deployments),"persistent":True}
-
-@app.get("/api/resources/{provider}/{resource_id}")
-def resource_detail(provider:str,resource_id:str):
-    if provider not in providers: raise HTTPException(404,"Provider not found")
-    try: items=providers[provider].list_resources()
-    except Exception as e: raise HTTPException(400,str(e))
-    r=next((x for x in items if x.id==resource_id),None)
-    if not r: raise HTTPException(404,"Resource not found")
-    data=r.model_dump(); data["capabilities"]=["start","stop","restart","snapshot"] if r.type=="virtual_machine" else []
-    data["estimated_monthly_cost"]={"currency":"USD","amount":0 if provider=="mock" else None,"status":"demo" if provider=="mock" else "provider-cost-integration-required"}
-    return data
-@app.get("/api/schedules")
-def get_schedules(): return schedules
-@app.post("/api/schedules")
-def add_schedule(body:ScheduleInput,x_user:str|None=Header(default="demo@peacloud.local"),x_role:str|None=Header(default="operator")):
-    if role(x_role) not in {"operator","admin"}: raise HTTPException(403,"Operator role required")
-    if not body.cron.strip(): raise HTTPException(400,"Cron expression required")
-    item=body.model_dump(); item["id"]=str(uuid4()); item["created_at"]=now(); schedules.append(item); store.put("schedule",item); record(x_user,"schedule.create",f"{body.provider}:{body.resource_id}:{body.action}:{body.cron}"); return item
-@app.delete("/api/schedules/{schedule_id}")
-def delete_schedule(schedule_id:str,x_user:str|None=Header(default="demo@peacloud.local"),x_role:str|None=Header(default="operator")):
-    if role(x_role) not in {"operator","admin"}: raise HTTPException(403,"Operator role required")
-    idx=next((i for i,x in enumerate(schedules) if x["id"]==schedule_id),None)
-    if idx is None: raise HTTPException(404,"Schedule not found")
-    item=schedules.pop(idx); store.delete("schedule",schedule_id); record(x_user,"schedule.delete",schedule_id); return item
-@app.get("/api/costs/summary")
-def cost_summary(): return {"currency":"USD","estimated_monthly":0,"covered_resources":len(providers["mock"].list_resources()),"status":"mock-only","note":"Real-provider billing APIs are not enabled in this release"}
-
-@app.post("/api/connections/test")
-def test_connection(body:ConnectionTest,x_user:str|None=Header(default="demo@peacloud.local")):
-    try:
-        result=providers[body.provider].test_connection(); record(x_user,"connection.test",body.provider); return result
-    except Exception as e: raise HTTPException(400,str(e))
-@app.get("/api/resources")
-def resources(provider:str|None=None):
-    names=[provider] if provider else list(providers)
-    out=[]; errors={}
-    for name in names:
-        if name not in providers: raise HTTPException(404,"Provider not found")
-        try: out += [x.model_dump() for x in providers[name].list_resources()]
-        except Exception as e: errors[name]=str(e)
-    return {"items":out,"errors":errors}
-@app.get("/api/summary")
-def summary():
-    data=resources("mock")["items"]
-    return {"providers":4,"connected":1,"resources":len(data),"running_vms":sum(x["type"]=="virtual_machine" and x["state"]=="running" for x in data),"alerts":0,"operations":len(operations)}
-@app.post("/api/resources/{provider}/{resource_id}/actions/{action}")
-def action(provider:str,resource_id:str,action:str,body:ActionRequest,x_user:str|None=Header(default="demo@peacloud.local"),x_role:str|None=Header(default="operator")):
-    if role(x_role) not in {"operator","admin"}: raise HTTPException(403,"Operator role required")
-    expected=f"{action.upper()} {resource_id}"
-    if body.confirmation!=expected: raise HTTPException(400,f"Confirmation must be exactly: {expected}")
-    if provider not in providers: raise HTTPException(404,"Provider not found")
-    resource=next((x for x in providers[provider].list_resources() if x.id==resource_id),None)
-    if not resource: raise HTTPException(404,"Resource not found")
-    if needs_approval(resource,action) and role(x_role)!="admin":
-        req=make_request(x_user,provider,resource,action); approvals.insert(0,req); store.put("approval",req); record(x_user,"approval.request",req["id"])
-        return {"status":"pending_approval","detail":"Approval request created","approval_id":req["id"]}
-    decision=policy.evaluate(action,resource,role(x_role))
-    if not decision["allowed"]:
-        record(x_user,"policy.block",f"{provider}:{resource_id}:{action}:"+"; ".join(decision["reasons"]))
-        raise HTTPException(403,{"message":"Blocked by policy","reasons":decision["reasons"]})
-    op=Operation(id=str(uuid4()),timestamp=now(),user=x_user,provider=provider,resource_id=resource_id,action=action,status="running",detail="")
-    try:
-        result=providers[provider].act(resource_id,action); op.status=result["status"];op.detail=result["message"]
-    except PermissionError as e: op.status="blocked";op.detail=str(e)
-    except Exception as e: op.status="failed";op.detail=str(e)
-    operations.insert(0,op.model_dump());record(x_user,"resource.action",f"{provider}:{resource_id}:{action}:{op.status}")
-    if op.status in {"failed","blocked"}: raise HTTPException(400,op.detail)
-    return op
-@app.get("/api/operations")
-def get_operations(): return operations[:100]
-@app.get("/api/audit")
-def get_audit(x_role:str|None=Header(default="operator")):
-    if role(x_role)!="admin": raise HTTPException(403,"Admin role required")
-    return audit[:200]
-
-app.mount("/static",StaticFiles(directory="app/static"),name="static")
-@app.get("/")
-def index(): return FileResponse("app/static/index.html")
+@app.get('/api/resources')
+def resources():return {'items':RESOURCES,'errors':{}}
+@app.get('/api/inventory')
+def inventory(provider:str|None=None,resource_type:str|None=None,q:str|None=None,offset:int=0,limit:int=50):
+ x=RESOURCES
+ if provider:x=[r for r in x if r['provider']==provider]
+ if resource_type:x=[r for r in x if r['type']==resource_type]
+ if q:x=[r for r in x if q.lower() in str(r).lower()]
+ limit=min(max(limit,1),200);return {'items':x[offset:offset+limit],'total':len(x),'offset':offset,'limit':limit}
+@app.get('/api/inventory/insights')
+def insights():
+ miss_owner=sum('owner' not in r['tags'] for r in RESOURCES);miss_env=sum('env' not in r['tags'] for r in RESOURCES)
+ return {'total':len(RESOURCES),'coverage':{'owner_tag_percent':100*(len(RESOURCES)-miss_owner)/len(RESOURCES),'environment_tag_percent':100*(len(RESOURCES)-miss_env)/len(RESOURCES)},'findings':miss_owner+miss_env}
+@app.post('/api/resources/{rid}/actions/{action}')
+def act(rid:str,action:str,b:Action,x_user:str|None=Header(default='demo'),x_role:str|None=Header(default='operator')):
+ r=next((x for x in RESOURCES if x['id']==rid),None)
+ if not r:raise HTTPException(404,'Resource not found')
+ if role(x_role)=='viewer':raise HTTPException(403,'Operator role required')
+ expected=f'{action.upper()} {rid}'
+ if b.confirmation!=expected:raise HTTPException(400,f'Confirmation must be exactly: {expected}')
+ if action=='snapshot' and role(x_role)!='admin':
+  a={'id':str(uuid4()),'resource_id':rid,'resource_name':r['name'],'action':action,'status':'pending','requested_by':x_user};APPROVALS.insert(0,a);audit(x_user,'approval.request',a['id']);return {'status':'pending_approval','approval_id':a['id']}
+ if action=='start':r['state']='running'
+ elif action=='stop':r['state']='stopped'
+ elif action=='restart':r['state']='running'
+ elif action!='snapshot':raise HTTPException(400,'Unsupported action')
+ o={'id':str(uuid4()),'resource_id':rid,'action':action,'status':'succeeded'};OPS.insert(0,o);audit(x_user,'resource.action',f'{rid}:{action}');return o
+@app.get('/api/operations')
+def operations():return OPS
+@app.get('/api/approvals')
+def approvals():return APPROVALS
+@app.get('/api/costs/summary')
+def cost_summary():
+ rows=costs();total=sum(x['monthly_cost'] for x in rows);alerts=[]
+ for b in BUDGETS:
+  pct=total/b['amount']*100
+  if pct>=min(b['thresholds']):alerts.append({'budget':b['name'],'percent':round(pct,1),'severity':'critical' if pct>=100 else 'warning'})
+ return {'currency':'USD','monthly_cost':total,'annualized_cost':total*12,'authoritative':False,'source':'mock-estimate','budget_alerts':alerts,'coverage_note':'Mock estimates only. Not provider billing data.'}
+@app.get('/api/costs/recommendations')
+def recs():return [{'resource_id':r['id'],'name':r['name'],'recommendation':'Review stopped VM for deallocation or deletion after retention checks','estimated_monthly_savings':8,'confidence':'low','automatic':False} for r in RESOURCES if r['type']=='virtual_machine' and r['state']=='stopped']
+@app.get('/api/budgets')
+def budgets():return BUDGETS
+@app.post('/api/budgets')
+def budget(b:BudgetIn,x_role:str|None=Header(default='operator')):
+ if role(x_role)!='admin':raise HTTPException(403,'Admin role required')
+ if b.amount<=0:raise HTTPException(400,'Budget must be > 0')
+ x={'id':str(uuid4()),**b.model_dump()};BUDGETS.insert(0,x);return x
+@app.post('/api/provisioning/plans')
+def plan(b:ResourceIn,x_role:str|None=Header(default='operator')):
+ if role(x_role)=='viewer':raise HTTPException(403,'Operator required')
+ x={'id':str(uuid4()),'status':'planned','spec':b.model_dump(),'risk':'high' if b.environment=='prod' else 'medium','cost_estimate':{'authoritative':False,'monthly_hint':35}};PLANS.insert(0,x);return x
+@app.get('/api/provisioning/plans')
+def plans():return PLANS
+@app.get('/api/system/capabilities')
+def caps():return {'providers':['mock','aws','azure','gcp'],'features':['inventory','vm-actions','approvals','schedules','provisioning-plans','iac-preview-boundary','finops','budgets','audit'],'real_mutations_default':False}
+@app.get('/api/audit')
+def auditlog(x_role:str|None=Header(default='operator')):
+ if role(x_role)!='admin':raise HTTPException(403,'Admin required')
+ return AUDIT

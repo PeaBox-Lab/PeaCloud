@@ -1,0 +1,2 @@
+# PostgreSQL Production Guide
+v0.12 introduces SQLAlchemy and a PostgreSQL production connection. Docker Compose uses PostgreSQL 17 and a named data volume. Store the database password in GitHub Environments or a cloud secret manager, never in Git. Enable TLS for external database connections, automated backups/PITR, monitoring and least-privilege credentials. Alembic migration adoption and tenant-aware tables remain required before Production GA.

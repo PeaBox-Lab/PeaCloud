@@ -1,0 +1,2 @@
+# Governance
+PeaCloud is maintainer-led during its pre-1.0 phase. Maintainers merge changes, cut releases, handle security reports and define compatibility policy. Significant architecture, permissions, security or destructive-operation changes should be proposed in an issue or design discussion before implementation. Maintainer status is earned through sustained, high-quality contribution and responsible security practices.

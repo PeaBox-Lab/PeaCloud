@@ -1,0 +1,39 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: peacloud
+      POSTGRES_USER: peacloud
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes: ["peacloud-db:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U peacloud"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  api:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres: {condition: service_healthy}
+    environment:
+      PEACLOUD_ENV: production
+      PEACLOUD_DATABASE_URL: postgresql+psycopg://peacloud:${POSTGRES_PASSWORD}@postgres:5432/peacloud
+      PEACLOUD_ALLOWED_ORIGINS: ${PEACLOUD_ALLOWED_ORIGINS:?set PEACLOUD_ALLOWED_ORIGINS}
+      PEACLOUD_AUTH_MODE: ${PEACLOUD_AUTH_MODE:-oidc}
+      PEACLOUD_OIDC_ISSUER: ${PEACLOUD_OIDC_ISSUER:?set PEACLOUD_OIDC_ISSUER}
+      PEACLOUD_OIDC_AUDIENCE: ${PEACLOUD_OIDC_AUDIENCE:?set PEACLOUD_OIDC_AUDIENCE}
+      PEACLOUD_DOCS_ENABLED: "false"
+    expose: ["8000"]
+    read_only: true
+    tmpfs: ["/tmp"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports: ["8080:80"]
+    volumes: ["./deploy/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro"]
+    depends_on: [api]
+volumes: {peacloud-db: {}}

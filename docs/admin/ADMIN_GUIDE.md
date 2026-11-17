@@ -1,0 +1,2 @@
+# Administrator Guide
+Use Admin only for privileged workflows. Daily: review failures, approvals, budget alerts, inventory ownership gaps and audit anomalies. Before production changes verify owner, reason, user impact, rollback and maintenance window. For GitHub, maintain branch rules, CI/CodeQL and security settings. Use managed or short-lived cloud identities and keep break-glass access outside PeaCloud.

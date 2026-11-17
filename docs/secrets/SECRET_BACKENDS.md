@@ -1,0 +1,2 @@
+# Secret Backends
+Set `PEACLOUD_SECRET_BACKEND` to `aws`, `azure`, `gcp`, or `environment`. Environment is intended for local/dev and controlled CI only. AWS uses the boto3 Secrets Manager client and should run with IAM role/workload credentials. Azure uses `DefaultAzureCredential` with Key Vault. GCP uses Secret Manager and ADC/Workload Identity. Never log returned secret values and never expose a generic list-values endpoint.

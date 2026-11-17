@@ -1,56 +1,39 @@
 from fastapi.testclient import TestClient
 from app.main import app
 c=TestClient(app)
-def test_health(): assert c.get('/api/health').status_code==200
-def test_mock_inventory():
-    r=c.get('/api/resources?provider=mock'); assert r.status_code==200; assert len(r.json()['items'])>=4
-def test_confirmation_guard():
-    r=c.post('/api/resources/mock/vm-demo-01/actions/stop',json={'confirmation':'yes'}); assert r.status_code==400
-def test_vm_action():
-    r=c.post('/api/resources/mock/vm-demo-01/actions/stop',json={'confirmation':'STOP vm-demo-01'}); assert r.status_code==200
-    data=c.get('/api/resources?provider=mock').json()['items']; assert next(x for x in data if x['id']=='vm-demo-01')['state']=='stopped'
-def test_viewer_blocked():
-    r=c.post('/api/resources/mock/vm-demo-01/actions/start',headers={'X-Role':'viewer'},json={'confirmation':'START vm-demo-01'}); assert r.status_code==403
-def test_secret_admin_only():
-    assert c.post('/api/secrets',json={'name':'x','value':'supersecret'}).status_code==403
-    r=c.post('/api/secrets',headers={'X-Role':'admin'},json={'name':'x','value':'supersecret'}); assert r.status_code==200
-    listed=c.get('/api/secrets',headers={'X-Role':'admin'}).json(); assert 'supersecret' not in str(listed); assert 'x' in listed['names']
-def test_connection_profile():
-    r=c.post('/api/profiles',json={'provider':'aws','name':'sandbox','account_id':'123'}); assert r.status_code==200
-    assert any(x['name']=='sandbox' for x in c.get('/api/profiles').json())
-def test_persistent_storage_status():
-    r=c.get('/api/system/storage'); assert r.status_code==200; assert r.json()['persistent'] is True
-def test_profile_wizard_admin():
-    b={'provider':'mock','name':'local','auth_method':'environment'}
-    assert c.post('/api/profiles/wizard',json=b).status_code==403
-    assert c.post('/api/profiles/wizard',headers={'X-Role':'admin'},json=b).status_code==200
-def test_scheduler_admin_only():
-    assert c.post('/api/scheduler/run-due',json={}).status_code==403
-def test_snapshot_creates_approval_for_operator():
-    r=c.post('/api/resources/mock/vm-demo-01/actions/snapshot',headers={'X-Role':'operator'},json={'confirmation':'SNAPSHOT vm-demo-01'})
-    assert r.status_code==200 and r.json()['status']=='pending_approval'
-    assert len(c.get('/api/approvals?status=pending').json())>=1
-def test_approval_admin_only():
-    r=c.post('/api/resources/mock/vm-demo-01/actions/snapshot',headers={'X-Role':'operator'},json={'confirmation':'SNAPSHOT vm-demo-01'})
-    aid=r.json()['approval_id']
-    assert c.post(f'/api/approvals/{aid}/decision',json={'decision':'approved'}).status_code==403
-    assert c.post(f'/api/approvals/{aid}/decision',headers={'X-Role':'admin'},json={'decision':'approved','comment':'reviewed'}).status_code==200
-def test_provisioning_preview_and_mock_apply():
-    b={'provider':'mock','resource_type':'virtual_machine','name':'demo-new','region':'india-north','environment':'dev','size':'small'}
-    r=c.post('/api/provisioning/plans',json=b); assert r.status_code==200; pid=r.json()['id']; assert r.json()['cost_estimate']['authoritative'] is False
-    assert c.post(f'/api/provisioning/plans/{pid}/apply',json={'confirmation':'wrong'}).status_code==400
-    assert c.post(f'/api/provisioning/plans/{pid}/apply',json={'confirmation':f'APPLY {pid}'}).status_code==200
-def test_real_provider_apply_is_preview_only():
-    b={'provider':'aws','resource_type':'virtual_machine','name':'preview','region':'ap-south-1','environment':'dev','size':'small'}
-    r=c.post('/api/provisioning/plans',json=b); pid=r.json()['id']
-    assert c.post(f'/api/provisioning/plans/{pid}/apply',json={'confirmation':f'APPLY {pid}'}).status_code==400
-def test_iac_capabilities_safe_default():
-    r=c.get('/api/provisioning/capabilities'); assert r.status_code==200; assert r.json()['iac']['real_apply_enabled'] is False
-def test_terraform_preview_aws_vm():
-    b={'provider':'aws','resource_type':'virtual_machine','name':'web-node','region':'ap-south-1','environment':'dev','size':'small'}
-    p=c.post('/api/provisioning/plans',json=b).json(); r=c.get(f"/api/provisioning/plans/{p['id']}/iac-preview")
-    assert r.status_code==200; assert 'aws_instance' in r.json()['configuration']; assert r.json()['validated'] is False
-def test_real_iac_apply_remains_gated():
-    b={'provider':'aws','resource_type':'virtual_machine','name':'gated','region':'ap-south-1','environment':'dev','size':'small'}
-    p=c.post('/api/provisioning/plans',json=b).json(); pid=p['id']; r=c.post(f'/api/provisioning/plans/{pid}/apply',json={'confirmation':f'APPLY {pid}'})
-    assert r.status_code==400; assert 'PEACLOUD_ALLOW_IAC_APPLY' in r.json()['detail']
+def test_health():assert c.get('/api/health').json()['version']=='0.14.0'
+def test_inventory():assert c.get('/api/inventory?limit=2').json()['total']==4
+def test_rbac():assert c.post('/api/resources/vm-demo-01/actions/stop',headers={'X-Role':'viewer'},json={'confirmation':'STOP vm-demo-01'}).status_code==403
+def test_action():assert c.post('/api/resources/vm-demo-01/actions/stop',json={'confirmation':'STOP vm-demo-01'}).status_code==200
+def test_finops_label():assert c.get('/api/costs/summary').json()['authoritative'] is False
+def test_budget_admin():assert c.post('/api/budgets',json={'name':'x','amount':10}).status_code==403
+def test_liveness_readiness():
+    assert c.get('/api/liveness').json()['alive'] is True
+    assert c.get('/api/readiness').json()['ready'] is True
+def test_cors_not_wildcard():
+    from app.settings import settings
+    assert '*' not in settings.allowed_origins
+def test_auth_dev_context():
+    r=c.get('/api/auth/status',headers={'X-Role':'operator','X-User':'alice','X-Tenant':'tenant-a'})
+    assert r.status_code==200 and r.json()['role']=='operator' and r.json()['tenant']=='tenant-a'
+def test_tenant_context():
+    r=c.get('/api/tenant/context',headers={'X-Tenant':'tenant-b'})
+    assert r.json()['tenant_id']=='tenant-b'
+def test_readiness_database():
+    r=c.get('/api/readiness');assert r.status_code==200 and r.json()['checks']['database']=='ok'
+def test_tenant_records_scoped():
+    from app.tenancy.repository import ensure_schema
+    ensure_schema()
+    r=c.get('/api/tenant/records/test',headers={'X-Tenant':'tenant-z'});assert r.status_code==200 and r.json()['tenant_id']=='tenant-z' and r.json()['items']==[]
+def test_auth_defaults_development_only():
+    import os
+    assert os.getenv('PEACLOUD_AUTH_MODE','dev-header')=='dev-header'
+def test_same_tenant_role_admin_and_cross_tenant_denied():
+    h={'X-Role':'admin','X-User':'root','X-Tenant':'tenant-a'}
+    r=c.post('/api/admin/roles/tenant-a/alice/operator',headers=h);assert r.status_code==200 and r.json()['role']=='operator'
+    assert c.post('/api/admin/roles/tenant-b/bob/admin',headers=h).status_code==403
+def test_security_capabilities_no_secrets():
+    r=c.get('/api/security/capabilities');assert r.status_code==200 and r.json()['rate_limit']['requests']==120
+    r=c.get('/api/secrets/status',headers={'X-Role':'admin','X-Tenant':'tenant-a'});assert r.json()['values_exposed'] is False
+def test_rls_sql_principals_and_records():
+    s=open('migrations/postgres_rls.sql').read();assert 'tenant_records_isolation' in s and 'principals_isolation' in s and 'current_setting' in s
