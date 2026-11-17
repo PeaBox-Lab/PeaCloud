@@ -1,5 +1,5 @@
 boto3>=1.35
-azure-identity>=1.19
+azure-identity>=1.27.0
 azure-mgmt-compute>=34
 google-cloud-compute>=1.20
 azure-keyvault-secrets>=4.9
