@@ -1,6 +1,0 @@
-apiVersion: v2
-name: peacloud
-description: PeaCloud multi-cloud control plane
-version: 0.15.0
-appVersion: "0.15.0"
-type: application

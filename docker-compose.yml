@@ -1,4 +1,7 @@
 services:
-  peacloud:
+  api:
     build: .
     ports: ["8000:8000"]
+  worker:
+    build: .
+    command: ["python","-m","app.workers.worker"]

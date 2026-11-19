@@ -1,25 +1,19 @@
-# PeaCloud v0.15.0 User Guide for All Roles
+# PeaCloud v0.16.0 User Guide for All Roles
 ## Customer / Viewer
-Use tenant-scoped inventory, health and advisory cost views. Viewer remains non-mutating. Never share credentials with Support.
+View dashboard and inventory. Viewer cannot create or cancel jobs. Cost views remain advisory.
 ## Operator / NOC
-Routine cloud work requires correct tenant/resource context and typed confirmation. Long-running work should be sent to the job queue rather than tying up a request. Operators can create jobs; job reads are tenant isolated.
-## Administrator / Tenant Admin
-Admin controls roles and privileged workflows only within the signed tenant. Production requires OIDC/JWKS. Managed secret stores are preferred. Review rate-limit, queue and observability status before major changes.
+Use Workers to submit discovery, inventory-refresh, or diagnostic tasks. Record the job ID. Jobs retry with exponential backoff and bounded attempts. Use idempotency keys when repeating a client request.
+## Admin / Tenant Admin
+Admin can manually process one job in the development GUI. In production, run dedicated worker processes. Review dead letters and repeated failures. Do not place secrets in job payloads.
 ## SRE / DevOps
-Production Compose now uses PostgreSQL plus Redis. Redis provides a shared multi-replica limiter and job queue. Kubernetes deployment assets include two replicas, liveness/readiness probes, non-root/read-only security context, HPA 2-10 replicas at 70% CPU, and a PodDisruptionBudget.
+Run API and workers separately. Production worker command: `python -m app.workers.worker`. Configure Redis for multi-replica coordination. Monitor queued, running, succeeded, cancelled, and dead-letter states.
 ## Platform / Cloud Engineer
-Helm image defaults are placeholders. Replace `OWNER`, configure OIDC/database/Redis through Kubernetes Secrets or an external-secrets operator, and never put secrets in values.yaml. Use managed Redis/PostgreSQL for serious production.
-## Observability / SRE
-`/api/observability/status` exposes request/error counters and whether an OTLP endpoint is configured. v0.15 creates the OpenTelemetry dependency/configuration boundary; full trace/metric exporters and dashboards remain a later production gate.
+Only safe discovery/refresh/diagnostic handlers are enabled. Destructive cloud handlers require provider operation IDs, idempotency, rollback and compensation design first.
 ## Security / GRC
-Distributed Redis limiting prevents simple per-replica bypass. It does not replace edge WAF/API-gateway protection. Kubernetes containers run non-root with seccomp RuntimeDefault, all capabilities dropped, read-only root filesystem and no privilege escalation.
-## DBA
-PostgreSQL migrations/RLS remain mandatory. Redis persistence is not a system of record. Back up PostgreSQL/PITR and use managed Redis HA where queue loss matters.
+Job reads and cancellation are tenant scoped. Viewer cannot enqueue. Raw tokens, passwords and cloud keys must never enter payloads or errors.
 ## Developer / Contributor
-Without `PEACLOUD_REDIS_URL`, PeaCloud falls back to local limiter/queue for development. Tests must verify tenant job isolation and production capabilities.
-## FinOps
-Cost estimates remain advisory/non-authoritative. No recommendation auto-executes.
+Add handlers to `app/workers/worker.py`; handlers must be idempotent and return JSON-safe output. Tests must cover success, retry, dead letter, cancellation and tenant denial.
 ## Support / Customer Success
-Collect version, tenant, provider, region, resource ID/job ID, UTC time and sanitized error. Never collect bearer tokens, cloud keys, Redis/Postgres passwords or vault exports.
+Collect job ID, kind, state, attempts, tenant, version and sanitized last error. Never ask for queue credentials.
 ## Maintainer / Release Manager
-Validate tests, migrations, Helm rendering/lint when available, container build, CodeQL, Scorecard and docs. Replace GitHub/registry `OWNER` placeholders before public release.
+Require worker tests, updated docs/user stories, CI and security scans before release.

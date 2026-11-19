@@ -1,2 +1,2 @@
 # Customer Guide
-Use PeaCloud to view the state and location of cloud resources from one console. Customer/Viewer access is intentionally read-oriented. Ask Operations for infrastructure changes rather than requesting elevated credentials. Any cost value labelled mock/non-authoritative is a planning example, not an AWS, Azure or Google Cloud invoice. For support provide version, provider, region, resource ID, UTC time and observed impact, never secrets.
+Use Dashboard and Inventory for visibility. Worker jobs are operations-team tools. Customers should not request elevated roles or share cloud credentials.

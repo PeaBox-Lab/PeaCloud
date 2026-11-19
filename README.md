@@ -1,6 +1,9 @@
-# PeaCloud v0.15.0
-Open-source multi-cloud control-plane project for AWS, Azure, GCP and extensible providers.
+# PeaCloud v0.16.0
+Multi-cloud control-plane prototype with a React GUI and resilient background workers.
 
-**Production-line / pre-GA.** v0.15 adds Redis shared rate limiting/job-queue foundations, hardened Kubernetes/Helm assets and observability groundwork. Critical cloud mutations should not yet depend on the job queue until dedicated workers, idempotency/retry/DLQ and external audit delivery are complete.
+Backend: `pip install -r requirements.txt && uvicorn app.main:app --reload`
+Frontend: `cd frontend && npm install && npm run dev`
+Worker: `python -m app.workers.worker`
+Tests: `PYTHONPATH=. pytest -q`
 
-Documentation for every persona and current user stories are packaged under `docs/`.
+All role guides, user stories and worker documentation are in `docs/`.

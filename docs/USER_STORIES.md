@@ -1,16 +1,18 @@
-# PeaCloud v0.15 User Stories and Acceptance Criteria
-1. **SRE:** I need rate limits shared across replicas. Acceptance: setting PEACLOUD_REDIS_URL selects Redis limiter mode.
-2. **Operator:** I can submit a background job. Acceptance: Operator enqueue returns queued job ID.
-3. **Security:** Tenant A cannot read Tenant B's queued job. Acceptance: cross-tenant job GET is 403.
-4. **SRE:** I need deployable Kubernetes assets. Acceptance: chart includes Deployment, Service, HPA and PDB.
-5. **Security:** Pods run hardened. Acceptance: runAsNonRoot, RuntimeDefault seccomp, read-only root, no privilege escalation and all capabilities dropped.
-6. **Platform Engineer:** I can horizontally scale API. Acceptance: default 2 replicas, HPA max 10, target 70% CPU.
-7. **SRE:** Kubernetes removes unhealthy pods from traffic. Acceptance: readiness and liveness probes call PeaCloud endpoints.
-8. **DevOps:** Production Compose includes Redis health check and persistent volume.
-9. **Observability engineer:** I can inspect application counters and OTLP configuration status.
-10. **Admin:** Security capabilities reveal limiter mode but no credentials.
-11. **Developer:** Local operation works without Redis through development fallback.
-12. **Customer:** Cost guidance remains explicitly non-authoritative.
-13. **Support:** Job troubleshooting uses job ID without requesting queue credentials.
-14. **Maintainer:** Registry/chart owner placeholders must be replaced before public release.
-15. **Release Manager:** Release documentation identifies OpenTelemetry exporters, external immutable audit and true worker execution as remaining production gates.
+# PeaCloud v0.16 User Stories
+1. Operator queues background work and receives a job ID.
+2. SRE sees failed work retry with exponential backoff.
+3. Poison work moves to dead letter after max attempts.
+4. Duplicate active requests with one idempotency key return the same job.
+5. Operator cancels a queued job in the same tenant.
+6. Tenant B cannot read Tenant A's job.
+7. Tenant B cannot cancel Tenant A's job.
+8. Viewer cannot enqueue jobs.
+9. Admin constrains attempts to 1-10.
+10. Developer has a synthetic failure handler for retry tests.
+11. DevOps runs worker independently from API.
+12. Platform Engineer sees safe handlers only by default.
+13. Customer retains a clear GUI for inventory and status.
+14. Support diagnoses using sanitized job metadata.
+15. Release Manager validates worker lifecycle and docs before release.
+
+Each story is accepted when the corresponding automated RBAC/lifecycle/tenant test passes and the documented behavior is visible in the React Workers workspace.

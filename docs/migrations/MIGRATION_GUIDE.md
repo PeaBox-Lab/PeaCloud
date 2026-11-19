@@ -1,2 +1,0 @@
-# Migration Guide
-Use `alembic upgrade head` before deploying code that depends on a new schema. Back up production/PostgreSQL and validate migration on staging first. Migration `001` introduces tenants, principals and tenant_records. For PostgreSQL, apply `migrations/postgres_rls.sql` after base migration. Downgrade is supplied for development/recovery testing; production rollback should prefer restoring an application-compatible image and carefully assessed schema rollback rather than blindly downgrading data.

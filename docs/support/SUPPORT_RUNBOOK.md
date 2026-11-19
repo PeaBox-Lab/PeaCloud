@@ -1,2 +1,2 @@
 # Support Runbook
-SEV1: production outage, data loss, suspected credential compromise. SEV2: major degradation/blocked production operation. SEV3: isolated non-production failure. SEV4: question/documentation. Capture version, health/readiness, provider/account/region/resource ID, UTC time, user role/action and sanitized error. Never request raw credentials. Escalate security/IAM to Security plus Platform Admin, cloud API failures to Platform, billing discrepancies to FinOps/provider billing owner.
+Capture version, job ID, tenant, kind, state, attempts and sanitized last error. Never request tokens, cloud keys, Redis passwords or database credentials.

@@ -1,4 +1,0 @@
-apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata: {name: peacloud}
-spec: {minAvailable: 1, selector: {matchLabels: {app: peacloud}}}
